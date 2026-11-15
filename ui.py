@@ -10,10 +10,15 @@ def escape_nick(user) -> str:
     return html.escape(raw)
 
 def invite_keyboard(p1_id: int, p2_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="⚔️ Принять вызов", callback_data=f"accept_{p1_id}_{p2_id}"),
-        InlineKeyboardButton(text="🏳️ Отказаться", callback_data=f"decline_{p1_id}_{p2_id}")
-    ]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⚔️ Принять вызов", callback_data=f"accept_{p1_id}_{p2_id}"),
+            InlineKeyboardButton(text="🏳️ Отказаться", callback_data=f"decline_{p1_id}_{p2_id}"),
+        ],
+        [
+            InlineKeyboardButton(text="🚫 Отозвать вызов", callback_data=f"revoke_{p1_id}_{p2_id}"),
+        ],
+    ])
 
 def render_invite(p1_name: str, p2_name: str) -> str:
     return f"🔥 <b>{p1_name}</b> вызывает <b>{p2_name}</b> на дуэль! ⚔️"
@@ -58,7 +63,8 @@ def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False)
         f"{session.p1.name}: {hp_bar(session.p1.hp)}\n"
         f"{session.p2.name}: {hp_bar(session.p2.hp)}\n\n"
         f"{log_block}"
-        f"🔴 Атакует: <b>{session.attacker.name}</b>\n\n"
+        f"🔴 Атакует: <b>{session.attacker.name}</b>\n"
+        f"🟢 Защищается: <b>{session.defender.name}</b>\n\n"
         f"Готовность: {session.p1.name} {r1} | {session.p2.name} {r2}"
         f"{rolling_line}"
     )

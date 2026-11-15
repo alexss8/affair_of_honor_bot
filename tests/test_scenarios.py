@@ -58,6 +58,24 @@ def make_msg_update(
     )
     return Update(update_id=update_id, message=msg)
 
+async def test_revoke_invite_scenario(bot_env):
+    dp, bot, engine, _ = bot_env
+    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
+    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
+    stranger = User(id=30, is_bot=False, first_name="Troll")
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        # 1. Чужак и Боб не могут отозвать вызов Алисы
+        await dp.feed_update(bot, make_callback_update(1, stranger, "revoke_10_20"))
+        await dp.feed_update(bot, make_callback_update(2, bob, "revoke_10_20"))
+        mock_edit.assert_not_awaited()
+
+        # 2. Алиса отзывает свой вызов
+        await dp.feed_update(bot, make_callback_update(3, alice, "revoke_10_20"))
+        mock_edit.assert_awaited_once()
+        assert "отозвал свой вызов" in mock_edit.call_args.kwargs["text"]
+        assert engine.get_session(-1001, 500) is None
+
 async def test_challenge_by_username_and_text_mention(bot_env):
     dp, bot, _, repo = bot_env
     alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
@@ -104,20 +122,16 @@ async def test_cancel_command_scenario(bot_env):
 
     cmd_cancel_ent = [MessageEntity(type="bot_command", offset=0, length=7)]
 
-    # 1. Вызов /cancel, когда нет активных дуэлей
     bot.reset_mock()
     await dp.feed_update(bot, make_msg_update(1, alice, "/cancel", entities=cmd_cancel_ent))
     assert "нет активных дуэлей" in str(bot.call_args)
 
-    # 2. Запускаем бой между Алисой и Бобом
     engine.start_duel(chat_id=-1001, msg_id=500, p1_id=10, p1_name="@alice", p2_id=20, p2_name="@bob")
 
-    # 3. Чужак пытается отменить чужую дуэль
     bot.reset_mock()
     await dp.feed_update(bot, make_msg_update(2, stranger, "/cancel", entities=cmd_cancel_ent))
     assert engine.get_session(-1001, 500) is not None
 
-    # 4. Алиса отменяет бой
     bot.reset_mock()
     await dp.feed_update(bot, make_msg_update(3, alice, "/cancel", entities=cmd_cancel_ent))
     assert engine.get_session(-1001, 500) is None

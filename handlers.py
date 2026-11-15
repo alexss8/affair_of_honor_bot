@@ -96,10 +96,17 @@ async def cmd_duel(message: Message, engine: DuelEngine, repo: BaseRepository):
         return await safe_reply(message, "Один из игроков уже участвует в другой дуэли!")
     await message.answer(ui.render_invite(ui.escape_nick(p1), p2_name), reply_markup=ui.invite_keyboard(p1.id, p2_id), parse_mode="HTML")
 
-@router.callback_query(F.data.startswith(("accept_", "decline_")))
+@router.callback_query(F.data.startswith(("accept_", "decline_", "revoke_")))
 async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine):
     act, p1_id, p2_id = cb.data.split("_")
     p1_id, p2_id, cid = int(p1_id), int(p2_id), cb.message.chat.id
+
+    if act == "revoke":
+        if cb.from_user.id != p1_id:
+            return await safe_answer_callback(cb, "Отозвать вызов может только тот, кто его бросил!", show_alert=True)
+        await safe_answer_callback(cb, "Вызов отозван.")
+        return await safe_edit_text(cb.message, "🚫 Инициатор отозвал свой вызов на дуэль.")
+
     if cb.from_user.id != p2_id:
         return await safe_answer_callback(cb, "Этот вызов адресован не тебе!", show_alert=True)
     if act == "decline":
