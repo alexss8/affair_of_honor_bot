@@ -1,0 +1,33 @@
+# Секреты и переменные окружения
+.env
+*.pem
+*.key
+
+# Базы данных SQLite и журналы WAL
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# Логи
+*.log
+logs/
+
+# Виртуальные окружения Python
+venv/
+.venv/
+env/
+
+# Кэш Python и тестов
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Системные файлы ОС и редакторов
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
