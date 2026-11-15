@@ -1,6 +1,8 @@
 import asyncio
 import html
 import logging
+import os
+import time
 from typing import Optional
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramServerError
@@ -13,6 +15,7 @@ from tg_utils import safe_answer_callback, safe_edit_markup, safe_edit_text, saf
 import ui
 
 router = Router()
+START_TIME = time.time()
 
 @router.message.outer_middleware()
 @router.callback_query.outer_middleware()
@@ -25,12 +28,17 @@ async def cache_user_middleware(handler, event, data):
     return await handler(event, data)
 
 @router.error()
-async def global_error_handler(event: ErrorEvent, logger: logging.Logger):
+async def global_error_handler(event: ErrorEvent, logger: logging.Logger, bot: Bot, config: Config):
     exc = event.exception
     if isinstance(exc, (TelegramNetworkError, TelegramServerError, TelegramForbiddenError)):
         logger.warning(f"Сетевая ошибка или ограничение доступа Telegram: {exc}")
         return
     logger.error(f"Непредвиденная ошибка при обработке события: {exc}", exc_info=True)
+    if config.admin_id:
+        try:
+            await bot.send_message(config.admin_id, f"🚨 <b>Ошибка в боте:</b>\n<code>{html.escape(str(exc)[:500])}</code>", parse_mode="HTML")
+        except Exception:
+            pass
 
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_NOT_MEMBER >> IS_MEMBER))
 async def on_bot_added(event: ChatMemberUpdated, config: Config):
@@ -47,6 +55,38 @@ async def cmd_help(message: Message, config: Config):
 async def cmd_top(message: Message, repo: BaseRepository, config: Config):
     stats = repo.get_top(message.chat.id, config.top_limit)
     await message.answer(ui.render_top(stats, config.top_limit), parse_mode="HTML")
+
+@router.message(Command("status"), F.chat.type == "private")
+async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository, config: Config):
+    if not config.admin_id or message.from_user.id != config.admin_id:
+        return
+    uptime_sec = int(time.time() - START_TIME)
+    days, rem = divmod(uptime_sec, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _ = divmod(rem, 60)
+    db_stats = repo.get_health_stats()
+    errors_count = 0
+    last_error = "Ошибок нет ✅"
+    if os.path.exists(config.log_file):
+        with open(config.log_file, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if "[ERROR]" in line:
+                    errors_count += 1
+                    last_error = html.escape(line.strip()[-180:])
+    text = (
+        f"🟢 <b>СТАТУС БОТА: ОК</b>\n\n"
+        f"⏱ <b>Аптайм:</b> {days}д {hours}ч {minutes}м\n"
+        f"⚔️ <b>Активных дуэлей сейчас:</b> {len(engine.sessions)}\n"
+        f"📥 <b>Очередь записи в БД:</b> {db_stats.get('queue_size', 0)}\n\n"
+        f"🗄 <b>База данных ({db_stats['db_size_kb']} КБ):</b>\n"
+        f"• Всего дуэлей сыграно: <b>{db_stats['total_duels']}</b>\n"
+        f"• Дуэлей за сегодня (UTC): <b>{db_stats['today_duels']}</b>\n"
+        f"• Игроков в кэше ников: <b>{db_stats['cached_users']}</b>\n\n"
+        f"📜 <b>Логи ({config.log_file}):</b>\n"
+        f"• Записей ERROR: <b>{errors_count}</b>\n"
+        f"• Последняя ошибка:\n<code>{last_error}</code>"
+    )
+    await message.answer(text, parse_mode="HTML")
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, bot: Bot, engine: DuelEngine):
@@ -100,13 +140,11 @@ async def cmd_duel(message: Message, engine: DuelEngine, repo: BaseRepository):
 async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine):
     act, p1_id, p2_id = cb.data.split("_")
     p1_id, p2_id, cid = int(p1_id), int(p2_id), cb.message.chat.id
-
     if act == "revoke":
         if cb.from_user.id != p1_id:
             return await safe_answer_callback(cb, "Отозвать вызов может только тот, кто его бросил!", show_alert=True)
         await safe_answer_callback(cb, "Вызов отозван.")
         return await safe_edit_text(cb.message, "🚫 Инициатор отозвал свой вызов на дуэль.")
-
     if cb.from_user.id != p2_id:
         return await safe_answer_callback(cb, "Этот вызов адресован не тебе!", show_alert=True)
     if act == "decline":

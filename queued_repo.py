@@ -44,10 +44,10 @@ class QueuedRepository:
     def get_top(self, chat_id: int, limit: int = 10) -> list[PlayerStats]:
         return self.repo.get_top(chat_id, limit)
 
-    def get_chat_stats(self, chat_id: int) -> dict[str, int]:
-        data = self.repo.get_chat_stats(chat_id)
-        data["queue_size"] = self.queue.qsize()
-        return data
+    def get_health_stats(self) -> dict:
+        stats = self.repo.get_health_stats()
+        stats["queue_size"] = self.queue.qsize()
+        return stats
 
     async def _process_queue(self) -> None:
         while True:
