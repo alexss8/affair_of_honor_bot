@@ -63,8 +63,7 @@ def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False)
         f"{session.p1.name}: {hp_bar(session.p1.hp)}\n"
         f"{session.p2.name}: {hp_bar(session.p2.hp)}\n\n"
         f"{log_block}"
-        f"🔴 Атакует: <b>{session.attacker.name}</b>\n"
-        f"🟢 Защищается: <b>{session.defender.name}</b>\n\n"
+        f"🔴 Атакует: <b>{session.attacker.name}</b>\n\n"
         f"Готовность: {session.p1.name} {r1} | {session.p2.name} {r2}"
         f"{rolling_line}"
     )
