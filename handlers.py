@@ -53,20 +53,12 @@ async def cmd_cancel(message: Message, bot: Bot, engine: DuelEngine):
     session = engine.cancel_user_duel(message.chat.id, message.from_user.id)
     if not session:
         return await safe_reply(message, "У тебя сейчас нет активных дуэлей.")
-
     canceler_name = ui.escape_nick(message.from_user)
     cancel_text = f"🚫 <b>ДУЭЛЬ ОТМЕНЕНА</b>\n\n<i>Бой между {session.p1.name} и {session.p2.name} аннулирован игроком {canceler_name} (без изменения рейтинга).</i>"
-
     try:
-        await bot.edit_message_text(
-            chat_id=session.chat_id,
-            message_id=session.message_id,
-            text=cancel_text,
-            parse_mode="HTML"
-        )
+        await bot.edit_message_text(chat_id=session.chat_id, message_id=session.message_id, text=cancel_text, parse_mode="HTML")
     except (TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramServerError):
         pass
-
     await safe_reply(message, "🚫 Твоя дуэль с соперником успешно отменена. Вы оба снова свободны!")
 
 def _resolve_target(message: Message, repo: BaseRepository) -> Optional[tuple[int, str, bool]]:
@@ -102,12 +94,7 @@ async def cmd_duel(message: Message, engine: DuelEngine, repo: BaseRepository):
         return await safe_reply(message, "Нельзя вызвать самого себя или бота.")
     if engine.is_user_busy(cid, p1.id) or engine.is_user_busy(cid, p2_id):
         return await safe_reply(message, "Один из игроков уже участвует в другой дуэли!")
-
-    await message.answer(
-        ui.render_invite(ui.escape_nick(p1), p2_name),
-        reply_markup=ui.invite_keyboard(p1.id, p2_id),
-        parse_mode="HTML"
-    )
+    await message.answer(ui.render_invite(ui.escape_nick(p1), p2_name), reply_markup=ui.invite_keyboard(p1.id, p2_id), parse_mode="HTML")
 
 @router.callback_query(F.data.startswith(("accept_", "decline_")))
 async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine):
@@ -121,7 +108,6 @@ async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine):
     if engine.is_user_busy(cid, p1_id) or engine.is_user_busy(cid, p2_id):
         await safe_answer_callback(cb)
         return await safe_edit_text(cb.message, "❌ Один из игроков уже вступил в другой бой.")
-
     await safe_answer_callback(cb)
     p1_chat = await bot.get_chat(p1_id)
     session = engine.start_duel(cid, cb.message.message_id, p1_id, ui.escape_nick(p1_chat), p2_id, ui.escape_nick(cb.from_user))
@@ -144,7 +130,6 @@ async def handle_surrender(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepo
         if not ok:
             engine.sessions.pop((session.chat_id, session.message_id), None)
         return
-
     winner = session.get_opponent(player.id)
     duel_id = engine.finish_duel(session, winner, player)
     stats = repo.get_top(cb.message.chat.id, config.top_limit)
@@ -159,7 +144,6 @@ async def handle_turn(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepositor
     player = session.get_player(cb.from_user.id)
     if not player:
         return await safe_answer_callback(cb, "Это не ваша дуэль!", show_alert=True)
-
     act_type, direction = cb.data.split("_")
     is_attacker = (player.id == session.attacker.id)
     if is_attacker and act_type != "act":
@@ -168,19 +152,12 @@ async def handle_turn(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepositor
         return await safe_answer_callback(cb, "Сейчас твой ход ЗАЩИЩАТЬСЯ! Выбери один из блоков.", show_alert=True)
     if player.choice == direction and session.surrender_confirm_id is None:
         return await safe_answer_callback(cb, "Ты уже выбрал это действие! Ждем соперника.")
-
     player.choice = direction
     session.surrender_confirm_id = None
     await safe_answer_callback(cb, "Выбор принят! Ждем соперника.")
-
     if session.p1.choice and session.p2.choice:
-        await safe_edit_text(
-            cb.message,
-            ui.render_battle(session, is_rolling=True),
-            reply_markup=ui.battle_keyboard(session, is_rolling=True)
-        )
+        await safe_edit_text(cb.message, ui.render_battle(session, is_rolling=True), reply_markup=ui.battle_keyboard(session, is_rolling=True))
         await asyncio.sleep(0.8)
-
         log, is_over = engine.resolve_round(session)
         if is_over:
             winner = session.p1 if session.p1.hp > 0 else session.p2
@@ -191,6 +168,5 @@ async def handle_turn(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepositor
         ok = await safe_edit_text(cb.message, ui.render_battle(session, log), reply_markup=ui.battle_keyboard(session))
     else:
         ok = await safe_edit_text(cb.message, ui.render_battle(session), reply_markup=ui.battle_keyboard(session))
-
     if not ok:
         engine.sessions.pop((session.chat_id, session.message_id), None)

@@ -44,12 +44,16 @@ class QueuedRepository:
     def get_top(self, chat_id: int, limit: int = 10) -> list[PlayerStats]:
         return self.repo.get_top(chat_id, limit)
 
+    def get_chat_stats(self, chat_id: int) -> dict[str, int]:
+        data = self.repo.get_chat_stats(chat_id)
+        data["queue_size"] = self.queue.qsize()
+        return data
+
     async def _process_queue(self) -> None:
         while True:
             first_item = await self.queue.get()
             batch = [first_item]
 
-            # Забираем из очереди всё, что уже успело накопиться (до 200 штук за раз)
             while not self.queue.empty() and len(batch) < 200:
                 batch.append(self.queue.get_nowait())
 

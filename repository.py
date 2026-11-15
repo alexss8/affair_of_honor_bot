@@ -10,6 +10,7 @@ class BaseRepository(Protocol):
     def get_user_by_username(self, chat_id: int, username: str) -> Optional[tuple[int, str]]: ...
     def record_duel(self, chat_id: int, winner: Player, loser: Player) -> int: ...
     def get_top(self, chat_id: int, limit: int = 10) -> list[PlayerStats]: ...
+    def get_chat_stats(self, chat_id: int) -> dict[str, int]: ...
 
 class SQLiteRepository:
     def __init__(self, db_path: str = "duels.db"):
@@ -70,3 +71,25 @@ class SQLiteRepository:
         cur = self._get_conn().cursor()
         cur.execute("SELECT nickname, wins, losses FROM stats WHERE chat_id = ? ORDER BY wins DESC, losses ASC LIMIT ?", (chat_id, limit))
         return [PlayerStats(nick, w, l) for nick, w, l in cur.fetchall()]
+
+    def get_chat_stats(self, chat_id: int) -> dict[str, int]:
+        cur = self._get_conn().cursor()
+        cur.execute("SELECT COUNT(*) FROM duels_history WHERE chat_id = ?", (chat_id,))
+        total_duels = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM duels_history WHERE chat_id = ? AND date(created_at) = date('now')", (chat_id,))
+        today_duels = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM stats WHERE chat_id = ?", (chat_id,))
+        fighters_count = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM chat_users WHERE chat_id = ?", (chat_id,))
+        cached_users = cur.fetchone()[0]
+
+        return {
+            "total_duels": total_duels,
+            "today_duels": today_duels,
+            "fighters_count": fighters_count,
+            "cached_users": cached_users,
+            "queue_size": 0,
+        }
