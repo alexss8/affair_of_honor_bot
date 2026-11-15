@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import logging
 from unittest.mock import AsyncMock, patch
@@ -30,6 +31,9 @@ def bot_env(tmp_path):
     dp.include_router(router)
 
     yield dp, bot, engine, repo
+    for session in list(engine.sessions.values()):
+        if session.timeout_task and not session.timeout_task.done():
+            session.timeout_task.cancel()
     router._parent_router = None
 
 def make_callback_update(update_id: int, user: User, data: str, msg_id: int = 500, chat_id: int = -1001) -> Update:
@@ -65,17 +69,14 @@ async def test_revoke_invite_scenario(bot_env):
     stranger = User(id=30, is_bot=False, first_name="Troll")
 
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
-        # 1. Чужак и Боб не могут отозвать вызов Алисы
         await dp.feed_update(bot, make_callback_update(1, stranger, "revoke_10_20"))
         await dp.feed_update(bot, make_callback_update(2, bob, "revoke_10_20"))
         mock_edit.assert_not_awaited()
 
-        # 2. Алиса отзывает свой вызов
         await dp.feed_update(bot, make_callback_update(3, alice, "revoke_10_20"))
         mock_edit.assert_awaited_once()
         assert "отозвал свой вызов" in mock_edit.call_args.kwargs["text"]
         assert engine.get_session(-1001, 500) is None
-
 async def test_challenge_by_username_and_text_mention(bot_env):
     dp, bot, _, repo = bot_env
     alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
@@ -145,28 +146,23 @@ async def test_full_duel_and_surrender_scenario(bot_env):
     bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
     stranger = User(id=30, is_bot=False, first_name="Troll")
 
-    # 1. Чужак пытается принять чужой вызов
     await dp.feed_update(bot, make_callback_update(1, stranger, "accept_10_20"))
     assert engine.get_session(-1001, 500) is None
 
-    # 2. Боб принимает вызов от Алисы
     await dp.feed_update(bot, make_callback_update(2, bob, "accept_10_20"))
     session = engine.get_session(-1001, 500)
     assert session is not None
     assert session.p1.hp == 2
 
-    # 3. Боб (защитник) пытается нажать кнопку удара
     await dp.feed_update(bot, make_callback_update(3, bob, "act_top"))
     assert session.p2.choice is None
 
-    # 4. Алиса бьет сверху, проверяем, что кнопка показала ожидание Боба
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
         await dp.feed_update(bot, make_callback_update(4, alice, "act_top"))
         last_markup = mock_edit.call_args.kwargs["reply_markup"]
         footer_btn = last_markup.inline_keyboard[-1][0]
         assert "⏳ Ждем @bob" in footer_btn.text
 
-        # 5. Боб блокирует снизу -> Боб теряет 1 HP, перед результатом была фаза броска кубиков
         await dp.feed_update(bot, make_callback_update(5, bob, "def_bot"))
         assert session.p2.hp == 1
         all_texts = [
@@ -175,16 +171,59 @@ async def test_full_duel_and_surrender_scenario(bot_env):
         ]
         assert any("Бросаем кубики судьбы" in t for t in all_texts)
 
-    # 6. Боб нажимает "Сдаться" первый раз
     await dp.feed_update(bot, make_callback_update(6, bob, "surrender"))
     assert session.surrender_confirm_id == 20
     assert engine.get_session(-1001, 500) is not None
 
-    # 7. Боб подтверждает сдачу вторым нажатием
     await dp.feed_update(bot, make_callback_update(7, bob, "surrender"))
     assert engine.get_session(-1001, 500) is None
 
-    # 8. Проверяем статистику в БД
     top = repo.get_top(-1001)
     assert top[0].nickname == "@alice" and top[0].wins == 1
     assert top[1].nickname == "@bob" and top[1].losses == 1
+
+async def test_duel_timeout_victory_by_points(bot_env):
+    dp, bot, engine, repo = bot_env
+    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
+    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
+
+    dp["config"] = Config(bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", default_hp=3, duel_timeout_sec=0.05)
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=601))
+        session = engine.get_session(-1001, 601)
+        assert session is not None
+        session.p2.hp = 1  # У Алисы 3 HP, у Боба 1 HP
+
+        await asyncio.sleep(0.1)
+
+        assert engine.get_session(-1001, 601) is None
+        assert engine.is_user_busy(-1001, 10) is False
+        assert engine.is_user_busy(-1001, 20) is False
+        last_text = mock_edit.call_args.kwargs["text"]
+        assert "Время дуэли вышло!" in last_text
+        assert "Победитель: <b>@alice</b>" in last_text
+
+    top = repo.get_top(-1001)
+    assert len(top) == 2
+    assert top[0].nickname == "@alice" and top[0].wins == 1
+    assert top[1].nickname == "@bob" and top[1].losses == 1
+
+async def test_duel_timeout_draw_when_hp_equal(bot_env):
+    dp, bot, engine, repo = bot_env
+    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
+
+    dp["config"] = Config(bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", default_hp=3, duel_timeout_sec=0.05)
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=602))
+        assert engine.get_session(-1001, 602) is not None
+
+        await asyncio.sleep(0.1)
+
+        assert engine.get_session(-1001, 602) is None
+        last_text = mock_edit.call_args.kwargs["text"]
+        assert "ОКОНЧЕНА ВНИЧЬЮ" in last_text
+        assert "Рейтинг игроков не изменился" in last_text
+
+    assert repo.get_top(-1001) == []

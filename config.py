@@ -9,6 +9,7 @@ class Config:
     admin_id: Optional[int] = None
     default_hp: int = 5
     top_limit: int = 10
+    duel_timeout_sec: int = 300
     db_path: str = "duels.db"
     log_file: str = "bot.log"
 
@@ -26,6 +27,7 @@ def load_config() -> Config:
         admin_id=admin_id,
         default_hp=int(os.getenv("DEFAULT_HP", 5)),
         top_limit=int(os.getenv("TOP_LIMIT", 10)),
+        duel_timeout_sec=int(os.getenv("DUEL_TIMEOUT_SEC", 300)),
         db_path=os.getenv("DB_PATH", "duels.db"),
         log_file=os.getenv("LOG_FILE", "bot.log"),
     )

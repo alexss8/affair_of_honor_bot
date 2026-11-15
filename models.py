@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
 from typing import Optional
 
 @dataclass
@@ -17,6 +18,7 @@ class DuelSession:
     attacker_id: int
     max_hp: int
     surrender_confirm_id: Optional[int] = None
+    timeout_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 
     @property
     def attacker(self) -> Player:

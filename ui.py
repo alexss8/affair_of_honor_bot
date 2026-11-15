@@ -2,7 +2,6 @@ import html
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from models import DuelSession, Player, PlayerStats
 
-HOURGLASS_EMOJI = '<tg-emoji emoji-id="5445284980978621387">⏳</tg-emoji>'
 DICE_EMOJI = '<tg-emoji emoji-id="5427009714745517609">🎲</tg-emoji>'
 
 def escape_nick(user) -> str:
@@ -53,18 +52,15 @@ def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False)
     def hp_bar(hp: int) -> str:
         return "❤️" * hp + "🖤" * (session.max_hp - hp)
 
-    r1 = "✅" if session.p1.choice else HOURGLASS_EMOJI
-    r2 = "✅" if session.p2.choice else HOURGLASS_EMOJI
     log_block = f"📜 <i>{log}</i>\n\n" if log else ""
-    rolling_line = f"\n{DICE_EMOJI} <i>Бросаем кубики судьбы...</i>" if is_rolling else ""
+    rolling_line = f"\n\n{DICE_EMOJI} <i>Бросаем кубики судьбы...</i>" if is_rolling else ""
 
     return (
         f"⚔️ <b>ДУЭЛЬ</b> ⚔️\n\n"
         f"{session.p1.name}: {hp_bar(session.p1.hp)}\n"
         f"{session.p2.name}: {hp_bar(session.p2.hp)}\n\n"
         f"{log_block}"
-        f"🔴 Атакует: <b>{session.attacker.name}</b>\n\n"
-        f"Готовность: {session.p1.name} {r1} | {session.p2.name} {r2}"
+        f"🔴 Атакует: <b>{session.attacker.name}</b>"
         f"{rolling_line}"
     )
 
@@ -86,6 +82,14 @@ def render_victory(duel_id: int, winner: Player, reason: str, stats: list[Player
         f"{render_top(stats, limit)}"
     )
 
+def render_draw(reason: str, stats: list[PlayerStats], limit: int = 10, icon: str = "🤝") -> str:
+    return (
+        f"{icon} <b>ДУЭЛЬ ОКОНЧЕНА ВНИЧЬЮ!</b>\n\n"
+        f"📜 <i>{reason}</i>\n\n"
+        f"Рейтинг игроков не изменился.\n\n"
+        f"{render_top(stats, limit)}"
+    )
+
 def render_help(default_hp: int, top_limit: int) -> str:
     return (
         "⚔️ <b>ДУЭЛЬНЫЙ БОТ — ПРАВИЛА И КОМАНДЫ</b>\n\n"
@@ -96,7 +100,8 @@ def render_help(default_hp: int, top_limit: int) -> str:
         f"• У каждого бойца по <b>{default_hp} жизней</b>.\n"
         "• Игроки ходят по очереди: один атакует (сверху или снизу), второй защищается.\n"
         "• Выбор делается вслепую через кнопки под сообщением.\n"
-        "• Если блок совпал с ударом — урон не проходит. Если нет — защитник теряет 1 жизнь.\n\n"
+        "• Если блок совпал с ударом — урон не проходит. Если нет — защитник теряет 1 жизнь.\n"
+        "• На весь бой отводится <b>5 минут</b>. Если время выйдет, победит боец с большим запасом жизней.\n\n"
         "<b>Команды чата:</b>\n"
         "/duel @ник — вызвать на бой\n"
         "/cancel — отменить свой текущий бой (если соперник пропал)\n"

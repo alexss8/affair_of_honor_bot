@@ -10,12 +10,47 @@ from aiogram.filters import ChatMemberUpdatedFilter, Command, IS_MEMBER, IS_NOT_
 from aiogram.types import CallbackQuery, ChatMemberUpdated, ErrorEvent, Message
 from config import Config
 from engine import DuelEngine
+from models import DuelSession
 from repository import BaseRepository
 from tg_utils import safe_answer_callback, safe_edit_markup, safe_edit_text, safe_reply
 import ui
 
 router = Router()
 START_TIME = time.time()
+
+async def _duel_timeout_watcher(
+    session: DuelSession,
+    message: Message,
+    engine: DuelEngine,
+    repo: BaseRepository,
+    config: Config,
+) -> None:
+    try:
+        await asyncio.sleep(config.duel_timeout_sec)
+        if engine.get_session(session.chat_id, session.message_id) is not session:
+            return
+
+        outcome = engine.resolve_timeout(session)
+        stats = repo.get_top(session.chat_id, config.top_limit)
+        if outcome is not None:
+            winner, loser = outcome
+            duel_id = repo.record_duel(session.chat_id, winner, loser)
+            engine.logger.info(
+                f"Дуэль #{duel_id} завершена по таймауту (чат {session.chat_id}). "
+                f"Победитель: {winner.name} ({winner.hp} HP), Проигравший: {loser.name} ({loser.hp} HP)"
+            )
+            reason = (
+                f"⏰ Время дуэли вышло! {winner.name} ({winner.hp} ❤️) "
+                f"оказался сильнее {loser.name} ({loser.hp} ❤️)."
+            )
+            text = ui.render_victory(duel_id, winner, reason, stats, config.top_limit, icon="⏰")
+        else:
+            reason = f"⏰ Время дуэли вышло! У обоих бойцов осталось по {session.p1.hp} ❤️."
+            text = ui.render_draw(reason, stats, config.top_limit, icon="⏰")
+
+        await safe_edit_text(message, text)
+    except asyncio.CancelledError:
+        pass
 
 @router.message.outer_middleware()
 @router.callback_query.outer_middleware()
@@ -87,7 +122,6 @@ async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository,
         f"• Последняя ошибка:\n<code>{last_error}</code>"
     )
     await message.answer(text, parse_mode="HTML")
-
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, bot: Bot, engine: DuelEngine):
     session = engine.cancel_user_duel(message.chat.id, message.from_user.id)
@@ -137,7 +171,7 @@ async def cmd_duel(message: Message, engine: DuelEngine, repo: BaseRepository):
     await message.answer(ui.render_invite(ui.escape_nick(p1), p2_name), reply_markup=ui.invite_keyboard(p1.id, p2_id), parse_mode="HTML")
 
 @router.callback_query(F.data.startswith(("accept_", "decline_", "revoke_")))
-async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine):
+async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine, repo: BaseRepository, config: Config):
     act, p1_id, p2_id = cb.data.split("_")
     p1_id, p2_id, cid = int(p1_id), int(p2_id), cb.message.chat.id
     if act == "revoke":
@@ -158,7 +192,12 @@ async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine):
     session = engine.start_duel(cid, cb.message.message_id, p1_id, ui.escape_nick(p1_chat), p2_id, ui.escape_nick(cb.from_user))
     ok = await safe_edit_text(cb.message, ui.render_battle(session, "Бой начался! Выбирайте действия."), reply_markup=ui.battle_keyboard(session))
     if not ok:
-        engine.sessions.pop((cid, cb.message.message_id), None)
+        engine.drop_session(cid, cb.message.message_id)
+        return
+
+    session.timeout_task = asyncio.create_task(
+        _duel_timeout_watcher(session, cb.message, engine, repo, config)
+    )
 
 @router.callback_query(F.data == "surrender")
 async def handle_surrender(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepository, config: Config):
@@ -173,7 +212,7 @@ async def handle_surrender(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepo
         await safe_answer_callback(cb, "Нажми на кнопку еще раз, чтобы подтвердить сдачу!", show_alert=True)
         ok = await safe_edit_markup(cb.message, reply_markup=ui.battle_keyboard(session))
         if not ok:
-            engine.sessions.pop((session.chat_id, session.message_id), None)
+            engine.drop_session(session.chat_id, session.message_id)
         return
     winner = session.get_opponent(player.id)
     duel_id = engine.finish_duel(session, winner, player)
@@ -203,6 +242,8 @@ async def handle_turn(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepositor
     if session.p1.choice and session.p2.choice:
         await safe_edit_text(cb.message, ui.render_battle(session, is_rolling=True), reply_markup=ui.battle_keyboard(session, is_rolling=True))
         await asyncio.sleep(0.8)
+        if engine.get_session(session.chat_id, session.message_id) is not session:
+            return
         log, is_over = engine.resolve_round(session)
         if is_over:
             winner = session.p1 if session.p1.hp > 0 else session.p2
@@ -214,4 +255,4 @@ async def handle_turn(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepositor
     else:
         ok = await safe_edit_text(cb.message, ui.render_battle(session), reply_markup=ui.battle_keyboard(session))
     if not ok:
-        engine.sessions.pop((session.chat_id, session.message_id), None)
+        engine.drop_session(session.chat_id, session.message_id)
