@@ -6,15 +6,15 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE}")" && pwd)"
 BOT_USER="botuser"
 SERVICE_NAME="duelbot"
 
 echo "🚀 Начинаем развертывание Дуэльного Бота на Ubuntu 22.04..."
 
-echo "📦 1/6. Установка Python 3.12 и системных утилит..."
+echo "📦 1/6. Установка Python 3.12, Git и системных утилит..."
 apt-get update -y
-apt-get install -y software-properties-common ufw curl
+apt-get install -y software-properties-common ufw curl git
 if ! command -v python3.12 &> /dev/null; then
   add-apt-repository ppa:deadsnakes/ppa -y
   apt-get update -y
@@ -32,12 +32,14 @@ fi
 
 TARGET_DIR="/home/$BOT_USER/duel_bot"
 if [ "$APP_DIR" != "$TARGET_DIR" ]; then
+  rm -rf "$TARGET_DIR"
   mkdir -p "$TARGET_DIR"
-  cp -r "$APP_DIR"/. "$TARGET_DIR"/
+  cp -a "$APP_DIR"/. "$TARGET_DIR"/
 fi
 
 chown -R "$BOT_USER:$BOT_USER" "$TARGET_DIR"
 chmod 700 "$TARGET_DIR"
+su - "$BOT_USER" -c "git config --global --add safe.directory '$TARGET_DIR'"
 
 echo "🐍 4/6. Создание виртуального окружения и установка зависимостей..."
 su - "$BOT_USER" -c "
@@ -48,7 +50,11 @@ su - "$BOT_USER" -c "
 "
 
 echo "🔑 5/6. Настройка переменных окружения (.env)..."
-su - "$BOT_USER" -c "cd '$TARGET_DIR' && ./venv/bin/python setup_env.py"
+if [ ! -f "$TARGET_DIR/.env" ]; then
+  su - "$BOT_USER" -c "cd '$TARGET_DIR' && ./venv/bin/python setup_env.py"
+else
+  echo "ℹ️  Файл .env уже существует, пропускаем настройку."
+fi
 
 echo "⚙️ 6/6. Настройка автозапуска 24/7 через systemd..."
 cat <<EOF > /etc/systemd/system/${SERVICE_NAME}.service
