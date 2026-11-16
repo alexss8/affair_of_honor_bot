@@ -86,6 +86,8 @@ async def test_status_command_access_and_output(health_env):
     bot.assert_called_once()
     sent_text = str(bot.call_args)
     assert "СТАТУС БОТА: ОК" in sent_text
+    assert "Память процесса (ОЗУ):" in sent_text
+    assert "Место на диске (БД + логи):" in sent_text
     assert "Всего дуэлей сыграно: <b>1</b>" in sent_text
     assert "Записей ERROR: <b>1</b>" in sent_text
     assert "Test boom" in sent_text

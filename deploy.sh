@@ -56,7 +56,15 @@ else
   echo "ℹ️  Файл .env уже существует, пропускаем настройку."
 fi
 
-echo "⚙️ 6/6. Настройка автозапуска 24/7 через systemd..."
+echo "⚙️ 6/6. Настройка автозапуска 24/7 через systemd и лимита логов..."
+mkdir -p /etc/systemd/journald.conf.d
+cat <<EOF > /etc/systemd/journald.conf.d/size-limit.conf
+[Journal]
+SystemMaxUse=50M
+MaxRetentionSec=7day
+EOF
+systemctl restart systemd-journald || true
+
 cat <<EOF > /etc/systemd/system/${SERVICE_NAME}.service
 [Unit]
 Description=Telegram Duel Bot (Affair of Honor)

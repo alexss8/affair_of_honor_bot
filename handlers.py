@@ -1,7 +1,10 @@
 import asyncio
+import ctypes
+from ctypes import wintypes
 import html
 import logging
 import os
+import sys
 import time
 from typing import Optional
 from aiogram import Bot, F, Router
@@ -17,6 +20,52 @@ import ui
 
 router = Router()
 START_TIME = time.time()
+
+def _get_process_ram_mb() -> float:
+    """Возвращает текущее потребление физической памяти (RSS) процессом в МБ без сторонних зависимостей."""
+    try:
+        if os.path.exists("/proc/self/status"):
+            with open("/proc/self/status", "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        kb = int(line.split()[1])
+                        return round(kb / 1024, 1)
+        if sys.platform == "win32":
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+            handle = ctypes.windll.kernel32.GetCurrentProcess()
+            if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                return round(counters.WorkingSetSize / (1024 * 1024), 1)
+    except Exception:
+        pass
+    return 0.0
+
+def _get_disk_usage_kb(db_path: str, log_file: str) -> float:
+    """Считает суммарный размер файлов БД (включая WAL/SHM) и логов на диске в КБ."""
+    total_bytes = 0
+    candidates = [db_path, f"{db_path}-wal", f"{db_path}-shm", log_file]
+    for i in range(1, 5):
+        candidates.append(f"{log_file}.{i}")
+    for path in candidates:
+        if path and os.path.exists(path):
+            try:
+                total_bytes += os.path.getsize(path)
+            except OSError:
+                pass
+    return round(total_bytes / 1024, 1)
 
 async def _duel_timeout_watcher(
     session: DuelSession,
@@ -100,6 +149,8 @@ async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository,
     hours, rem = divmod(rem, 3600)
     minutes, _ = divmod(rem, 60)
     db_stats = repo.get_health_stats()
+    ram_mb = _get_process_ram_mb()
+    disk_kb = _get_disk_usage_kb(config.db_path, config.log_file)
     errors_count = 0
     last_error = "Ошибок нет ✅"
     if os.path.exists(config.log_file):
@@ -111,6 +162,8 @@ async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository,
     text = (
         f"🟢 <b>СТАТУС БОТА: ОК</b>\n\n"
         f"⏱ <b>Аптайм:</b> {days}д {hours}ч {minutes}м\n"
+        f"🧠 <b>Память процесса (ОЗУ):</b> {ram_mb} МБ\n"
+        f"💾 <b>Место на диске (БД + логи):</b> {disk_kb} КБ\n"
         f"⚔️ <b>Активных дуэлей сейчас:</b> {len(engine.sessions)}\n"
         f"📥 <b>Очередь записи в БД:</b> {db_stats.get('queue_size', 0)}\n\n"
         f"🗄 <b>База данных ({db_stats['db_size_kb']} КБ):</b>\n"
