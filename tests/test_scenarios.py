@@ -174,13 +174,17 @@ async def test_full_duel_and_surrender_scenario(bot_env):
             call.kwargs.get("text") or (call.args[0] if call.args else "")
             for call in mock_edit.call_args_list
         ]
-        assert any("Бросаем кубики судьбы" in t for t in all_texts)
+        all_footers = [
+            call.kwargs["reply_markup"].inline_keyboard[-1][0].text
+            for call in mock_edit.call_args_list
+            if call.kwargs.get("reply_markup")
+        ]
+        assert any("Бросок кубиков" in f for f in all_footers)
         round_result_text = all_texts[-1]
         assert "Бой начался! Выбирайте действия." not in round_result_text
         assert "🔴 Атакует: <b>@bob</b>" in round_result_text
         assert "🟢 Защищается: <b>@alice</b>" in round_result_text
 
-        # В следующем раунде Алиса выбирает защиту -> фраза 1-го раунда сохраняется
         await dp.feed_update(bot, make_callback_update(6, alice, "def_top"))
         text_round2_alice = mock_edit.call_args.kwargs["text"]
         assert session.last_log in text_round2_alice

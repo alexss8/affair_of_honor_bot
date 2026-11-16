@@ -2,8 +2,6 @@ import html
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from models import DuelSession, Player, PlayerStats
 
-DICE_EMOJI = '<tg-emoji emoji-id="5427009714745517609">🎲</tg-emoji>'
-
 def escape_nick(user) -> str:
     raw = f"@{user.username}" if user.username else user.first_name
     return html.escape(raw)
@@ -53,11 +51,10 @@ def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False)
         return "❤️" * hp + "🖤" * (session.max_hp - hp)
 
     active_log = log or session.last_log
-    log_block = f"📜 <i>{active_log}</i>\n\n" if active_log else ""
+    log_block = f"<i>{active_log}</i>\n\n" if active_log else ""
 
     att_icon = "✅" if session.attacker.choice else "🔴"
     def_icon = "✅" if session.defender.choice else "🟢"
-    rolling_line = f"\n\n{DICE_EMOJI} <i>Бросаем кубики судьбы...</i>" if is_rolling else ""
 
     return (
         f"⚔️ <b>ДУЭЛЬ</b> ⚔️\n\n"
@@ -66,7 +63,6 @@ def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False)
         f"{log_block}"
         f"{att_icon} Атакует: <b>{session.attacker.name}</b>\n"
         f"{def_icon} Защищается: <b>{session.defender.name}</b>"
-        f"{rolling_line}"
     )
 
 def render_top(stats: list[PlayerStats], limit: int = 10) -> str:
@@ -82,7 +78,7 @@ def render_top(stats: list[PlayerStats], limit: int = 10) -> str:
 def render_victory(duel_id: int, winner: Player, reason: str, stats: list[PlayerStats], limit: int = 10, icon: str = "🏆") -> str:
     return (
         f"{icon} <b>ДУЭЛЬ #{duel_id} ОКОНЧЕНА!</b>\n\n"
-        f"📜 <i>{reason}</i>\n\n"
+        f"<i>{reason}</i>\n\n"
         f"Победитель: <b>{winner.name}</b> (+1 в рейтинг)\n\n"
         f"{render_top(stats, limit)}"
     )
@@ -90,7 +86,7 @@ def render_victory(duel_id: int, winner: Player, reason: str, stats: list[Player
 def render_draw(reason: str, stats: list[PlayerStats], limit: int = 10, icon: str = "🤝") -> str:
     return (
         f"{icon} <b>ДУЭЛЬ ОКОНЧЕНА ВНИЧЬЮ!</b>\n\n"
-        f"📜 <i>{reason}</i>\n\n"
+        f"<i>{reason}</i>\n\n"
         f"Рейтинг игроков не изменился.\n\n"
         f"{render_top(stats, limit)}"
     )
