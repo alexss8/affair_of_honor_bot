@@ -122,6 +122,7 @@ async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository,
         f"• Последняя ошибка:\n<code>{last_error}</code>"
     )
     await message.answer(text, parse_mode="HTML")
+
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, bot: Bot, engine: DuelEngine):
     session = engine.cancel_user_duel(message.chat.id, message.from_user.id)
@@ -190,7 +191,7 @@ async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine, repo: B
     await safe_answer_callback(cb)
     p1_chat = await bot.get_chat(p1_id)
     session = engine.start_duel(cid, cb.message.message_id, p1_id, ui.escape_nick(p1_chat), p2_id, ui.escape_nick(cb.from_user))
-    ok = await safe_edit_text(cb.message, ui.render_battle(session, "Бой начался! Выбирайте действия."), reply_markup=ui.battle_keyboard(session))
+    ok = await safe_edit_text(cb.message, ui.render_battle(session), reply_markup=ui.battle_keyboard(session))
     if not ok:
         engine.drop_session(cid, cb.message.message_id)
         return
@@ -228,6 +229,8 @@ async def handle_turn(cb: CallbackQuery, engine: DuelEngine, repo: BaseRepositor
     player = session.get_player(cb.from_user.id)
     if not player:
         return await safe_answer_callback(cb, "Это не ваша дуэль!", show_alert=True)
+    if session.p1.choice and session.p2.choice:
+        return await safe_answer_callback(cb, "Раунд уже рассчитывается, подожди секунду!")
     act_type, direction = cb.data.split("_")
     is_attacker = (player.id == session.attacker.id)
     if is_attacker and act_type != "act":

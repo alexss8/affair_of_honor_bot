@@ -17,6 +17,7 @@ class DuelSession:
     p2: Player
     attacker_id: int
     max_hp: int
+    last_log: str = ""
     surrender_confirm_id: Optional[int] = None
     timeout_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 

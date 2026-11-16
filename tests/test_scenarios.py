@@ -77,6 +77,7 @@ async def test_revoke_invite_scenario(bot_env):
         mock_edit.assert_awaited_once()
         assert "отозвал свой вызов" in mock_edit.call_args.kwargs["text"]
         assert engine.get_session(-1001, 500) is None
+
 async def test_challenge_by_username_and_text_mention(bot_env):
     dp, bot, _, repo = bot_env
     alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
@@ -162,6 +163,10 @@ async def test_full_duel_and_surrender_scenario(bot_env):
         last_markup = mock_edit.call_args.kwargs["reply_markup"]
         footer_btn = last_markup.inline_keyboard[-1][0]
         assert "⏳ Ждем @bob" in footer_btn.text
+        text_after_alice = mock_edit.call_args.kwargs["text"]
+        assert "✅ Атакует: <b>@alice</b>" in text_after_alice
+        assert "🟢 Защищается: <b>@bob</b>" in text_after_alice
+        assert "Бой начался! Выбирайте действия." in text_after_alice
 
         await dp.feed_update(bot, make_callback_update(5, bob, "def_bot"))
         assert session.p2.hp == 1
@@ -170,12 +175,22 @@ async def test_full_duel_and_surrender_scenario(bot_env):
             for call in mock_edit.call_args_list
         ]
         assert any("Бросаем кубики судьбы" in t for t in all_texts)
+        round_result_text = all_texts[-1]
+        assert "Бой начался! Выбирайте действия." not in round_result_text
+        assert "🔴 Атакует: <b>@bob</b>" in round_result_text
+        assert "🟢 Защищается: <b>@alice</b>" in round_result_text
 
-    await dp.feed_update(bot, make_callback_update(6, bob, "surrender"))
+        # В следующем раунде Алиса выбирает защиту -> фраза 1-го раунда сохраняется
+        await dp.feed_update(bot, make_callback_update(6, alice, "def_top"))
+        text_round2_alice = mock_edit.call_args.kwargs["text"]
+        assert session.last_log in text_round2_alice
+        assert "✅ Защищается: <b>@alice</b>" in text_round2_alice
+
+    await dp.feed_update(bot, make_callback_update(7, bob, "surrender"))
     assert session.surrender_confirm_id == 20
     assert engine.get_session(-1001, 500) is not None
 
-    await dp.feed_update(bot, make_callback_update(7, bob, "surrender"))
+    await dp.feed_update(bot, make_callback_update(8, bob, "surrender"))
     assert engine.get_session(-1001, 500) is None
 
     top = repo.get_top(-1001)
@@ -184,7 +199,6 @@ async def test_full_duel_and_surrender_scenario(bot_env):
 
 async def test_duel_timeout_victory_by_points(bot_env):
     dp, bot, engine, repo = bot_env
-    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
     bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
 
     dp["config"] = Config(bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", default_hp=3, duel_timeout_sec=0.05)
@@ -193,7 +207,7 @@ async def test_duel_timeout_victory_by_points(bot_env):
         await dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=601))
         session = engine.get_session(-1001, 601)
         assert session is not None
-        session.p2.hp = 1  # У Алисы 3 HP, у Боба 1 HP
+        session.p2.hp = 1
 
         await asyncio.sleep(0.1)
 

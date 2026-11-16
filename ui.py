@@ -52,7 +52,11 @@ def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False)
     def hp_bar(hp: int) -> str:
         return "❤️" * hp + "🖤" * (session.max_hp - hp)
 
-    log_block = f"📜 <i>{log}</i>\n\n" if log else ""
+    active_log = log or session.last_log
+    log_block = f"📜 <i>{active_log}</i>\n\n" if active_log else ""
+
+    att_icon = "✅" if session.attacker.choice else "🔴"
+    def_icon = "✅" if session.defender.choice else "🟢"
     rolling_line = f"\n\n{DICE_EMOJI} <i>Бросаем кубики судьбы...</i>" if is_rolling else ""
 
     return (
@@ -60,7 +64,8 @@ def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False)
         f"{session.p1.name}: {hp_bar(session.p1.hp)}\n"
         f"{session.p2.name}: {hp_bar(session.p2.hp)}\n\n"
         f"{log_block}"
-        f"🔴 Атакует: <b>{session.attacker.name}</b>"
+        f"{att_icon} Атакует: <b>{session.attacker.name}</b>\n"
+        f"{def_icon} Защищается: <b>{session.defender.name}</b>"
         f"{rolling_line}"
     )
 

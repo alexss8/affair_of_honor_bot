@@ -35,8 +35,13 @@ class DuelEngine:
         p1 = Player(id=p1_id, name=p1_name, hp=self.default_hp)
         p2 = Player(id=p2_id, name=p2_name, hp=self.default_hp)
         session = DuelSession(
-            chat_id=chat_id, message_id=msg_id,
-            p1=p1, p2=p2, attacker_id=p1.id, max_hp=self.default_hp
+            chat_id=chat_id,
+            message_id=msg_id,
+            p1=p1,
+            p2=p2,
+            attacker_id=p1.id,
+            max_hp=self.default_hp,
+            last_log="Бой начался! Выбирайте действия.",
         )
         self.sessions[(chat_id, msg_id)] = session
         self.logger.info(f"Начата дуэль в чате {chat_id}: {p1.name} ({p1.id}) vs {p2.name} ({p2.id})")
@@ -78,6 +83,7 @@ class DuelEngine:
             dfn.hp -= 1
 
         log = get_round_phrase(att.choice, is_blocked, att.name, dfn.name)
+        session.last_log = log
 
         if dfn.hp <= 0:
             return log, True
