@@ -1,17 +1,19 @@
 import os
 from dataclasses import dataclass
-from typing import Optional
+
 from dotenv import load_dotenv
+
 
 @dataclass(frozen=True)
 class Config:
     bot_token: str
-    admin_id: Optional[int] = None
+    admin_id: int | None = None
     default_hp: int = 5
     top_limit: int = 10
     duel_timeout_sec: int = 300
     db_path: str = "duels.db"
     log_file: str = "bot.log"
+
 
 def load_config() -> Config:
     load_dotenv()

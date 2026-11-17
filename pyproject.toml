@@ -1,0 +1,17 @@
+[project]
+name = "affair-of-honor"
+version = "0.1.0"
+description = "Telegram-бот для пошаговых дуэлей в групповых чатах"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["venv"]
+
+[tool.ruff.lint]
+# E/W — pycodestyle (PEP 8), F — pyflakes, I — сортировка импортов, B — bugbear, UP — современный синтаксис
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["bot"]

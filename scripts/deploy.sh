@@ -2,11 +2,11 @@
 set -e
 
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ Запустите скрипт от имени root: sudo bash deploy.sh"
+  echo "❌ Запустите скрипт от имени root: sudo bash scripts/deploy.sh"
   exit 1
 fi
 
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE}")" && pwd)"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE}")/.." && pwd)"  # корень проекта (скрипт лежит в scripts/)
 BOT_USER="botuser"
 SERVICE_NAME="duelbot"
 
@@ -57,7 +57,7 @@ su - "$BOT_USER" -c "
 
 echo "🔑 5/6. Настройка переменных окружения (.env)..."
 if [ ! -f "$TARGET_DIR/.env" ]; then
-  su - "$BOT_USER" -c "cd '$TARGET_DIR' && ./venv/bin/python setup_env.py"
+  su - "$BOT_USER" -c "cd '$TARGET_DIR' && ./venv/bin/python scripts/setup_env.py"
 else
   echo "ℹ️  Файл .env уже существует, пропускаем настройку."
 fi
@@ -82,7 +82,7 @@ Type=simple
 User=$BOT_USER
 Group=$BOT_USER
 WorkingDirectory=$TARGET_DIR
-ExecStart=$TARGET_DIR/venv/bin/python $TARGET_DIR/main.py
+ExecStart=$TARGET_DIR/venv/bin/python -m bot
 Restart=always
 RestartSec=5
 

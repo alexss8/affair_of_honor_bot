@@ -7,13 +7,16 @@
 ## 1. Архитектурные принципы (Strict Rules)
 
 - **KISS & Zero-Infrastructure:** Не добавляйте внешние брокеры и базы (Redis, RabbitMQ, PostgreSQL, Docker) без прямого запроса. Проект рассчитан на легкий запуск на одном VPS с SQLite.
-- **SOLID & Separation of Concerns:**
-  - `engine.py` — чистая игровая логика и состояние сессий в памяти. Не импортируйте сюда `aiogram`.
-  - `ui.py` — только генерация HTML-текстов и Inline-клавиатур. Никаких обращений к БД или API Telegram.
-  - `handlers.py` — только маршрутизация команд/коллбэков, валидация прав игрока и склейка `engine`, `repo` и `ui`.
-  - `repository.py` / `queued_repo.py` — вся работа с SQLite.
-- **Безопасность Telegram API:** Никогда не вызывайте `message.answer`, `message.reply`, `message.edit_text`, `message.edit_reply_markup`, `bot.edit_message_text`, `bot.get_chat` или `cb.answer` напрямую в `handlers.py`. Всегда используйте безопасные обертки из `tg_utils.py` (`safe_answer`, `safe_reply`, `safe_edit_text`, `safe_edit_text_by_id`, `safe_edit_markup`, `safe_get_chat`, `safe_answer_callback`), которые перехватывают `TelegramBadRequest`, `TelegramRetryAfter` и сетевые сбои.
-- **Защита от XSS/HTML-инъекций:** Любые имена пользователей из Telegram перед вставкой в HTML-сообщения обязаны проходить через `ui.escape_nick()` или `html.escape()`.
+- **SOLID & Separation of Concerns** (код живёт в пакете `bot/`, запуск: `python -m bot`):
+  - `bot/domain/` (`models`, `engine`, `phrases`) — чистая игровая логика и состояние сессий в памяти. Не импортируйте сюда `aiogram`.
+  - `bot/storage/` (`base` — Protocol репозитория, `sqlite_repo`, `queued_repo`) — вся работа с SQLite.
+  - `bot/services/` — вспомогательная логика без Telegram (`system_metrics` для `/status`).
+  - `bot/telegram/ui/` (`texts`, `keyboards`) — только генерация HTML-текстов и Inline-клавиатур. Никаких обращений к БД или API Telegram.
+  - `bot/telegram/handlers/` — только маршрутизация команд/коллбэков, валидация прав игрока и склейка `engine`, `repo` и `ui`. По модулю на тему: `common` (help/top/приветствие), `invite` (вызов и ответ на него), `battle` (ходы, сдача, `/cancel`), `admin` (`/status`), `errors`. Корневой `router` в `handlers/__init__.py` подключает middleware и все роутеры.
+  - `bot/telegram/middlewares.py` — кэш участников чата; `bot/telegram/duel_timer.py` — таймаут дуэли.
+- **Стиль кода:** ruff (`pyproject.toml`, длина строки 120). Перед коммитом: `ruff check .` и `ruff format .`.
+- **Безопасность Telegram API:** Никогда не вызывайте `message.answer`, `message.reply`, `message.edit_text`, `message.edit_reply_markup`, `bot.edit_message_text`, `bot.get_chat` или `cb.answer` напрямую в `bot/telegram/handlers/`. Всегда используйте безопасные обертки из `bot/telegram/safe_api.py` (`safe_answer`, `safe_reply`, `safe_edit_text`, `safe_edit_text_by_id`, `safe_edit_markup`, `safe_get_chat`, `safe_answer_callback`), которые перехватывают `TelegramBadRequest`, `TelegramRetryAfter` и сетевые сбои.
+- **Защита от XSS/HTML-инъекций:** Любые имена пользователей из Telegram перед вставкой в HTML-сообщения обязаны проходить через `texts.escape_nick()` / `texts.format_nick()` или `html.escape()`.
 
 ---
 
@@ -26,7 +29,7 @@
   - Оборачивает `SQLiteRepository`. Кэширование участников чата (`save_user`) пишется асинхронно через `asyncio.Queue` пачками (батчинг до 200 записей).
   - Запись результатов дуэли (`record_duel`) выполняется синхронно, чтобы сразу вернуть актуальный `duel_id` и обновленный `/top`.
 - **Супергруппы с темами (Forums/Topics):**
-  - В `_resolve_target` (`handlers.py`) игнорируются реплаи на системные сообщения создания тем (`forum_topic_created`).
+  - В `_resolve_target` (`bot/telegram/handlers/invite.py`) игнорируются реплаи на системные сообщения создания тем (`forum_topic_created`).
   - Поддерживается вызов по `Reply`, `@username` (из кэша `chat_users`) и `text_mention`, отзыв вызова инициатором (`revoke_`) и команда `/cancel`.
 - **Мониторинг (`/status`):**
   - Скрытая команда `/status` работает строго в личных сообщениях для `ADMIN_ID`. Критические ошибки из `global_error_handler` дублируются админу в ЛС.
@@ -39,7 +42,7 @@
 
 - Переносы строк контролируются через `.gitattributes` (все `.sh` и `.py` строго в `LF`).
 - Никогда не коммитьте `.env`, `*.db*`, `*.log` и локальные шпаргалки (`SSH_GUIDE.md`).
-- Деплой на Ubuntu 22.04 автоматизирован через `deploy.sh` (устанавливает окружение в `/home/botuser/duel_bot` с сохранением `.git` и настраивает `systemd`-службу `duelbot`). Код синхронизируется через `rsync`; `.env`, база (`*.db*`), логи и `venv` при повторном деплое не затрагиваются — не возвращайте `rm -rf` целевой папки.
+- Деплой на Ubuntu 22.04 автоматизирован через `scripts/deploy.sh` (устанавливает окружение в `/home/botuser/duel_bot` с сохранением `.git` и настраивает `systemd`-службу `duelbot`, запускающую `python -m bot`). Код синхронизируется через `rsync`; `.env`, база (`*.db*`), логи и `venv` при повторном деплое не затрагиваются — не возвращайте `rm -rf` целевой папки.
 
 ---
 
@@ -49,6 +52,8 @@
 
 ```bash
 py -3.12 -m pytest -v
+py -3.12 -m ruff check .
+py -3.12 -m ruff format --check .
 ```
 *(На Linux/Ubuntu: `pytest -v`. Зависимости для тестов: `pip install -r requirements-dev.txt`.)*
 
@@ -60,9 +65,10 @@ py -3.12 -m pytest -v
 ### Структура тестов (`tests/`):
 - `test_unit.py` — логика раундов, отмена боя (`/cancel`), работа кэша и рейтинга SQLite, склонения и текст справки.
 - `test_scenarios.py` — сквозные сценарии через `aiogram.Dispatcher` (вызов, отзыв вызова, сдача, отмена, двойное нажатие «Принять», ник инициатора из кэша).
-- `test_tg_errors.py` — проверка контракта `tg_utils.py` на все ошибки Telegram API и очистка зависших сессий при удалении сообщения админом.
-- `test_health.py` — проверка метрик БД и прав доступа к админ-команде `/status`; лог для теста пишется настоящим форматтером из `logger.py`.
-- `test_phrases.py` — валидация пула реплик в `phrases.py`.
+- `test_tg_errors.py` — проверка контракта `safe_api.py` на все ошибки Telegram API и очистка зависших сессий при удалении сообщения админом.
+- `test_health.py` — проверка метрик БД и прав доступа к админ-команде `/status`; лог для теста пишется настоящим форматтером из `bot/logger.py`.
+- `test_setup_env.py` — мастер `scripts/setup_env.py` записывает в `.env` все настройки.
+- `test_phrases.py` — валидация пула реплик в `bot/domain/phrases.py`.
 - `test_load.py` — нагрузочный тест на 500 одновременных дуэлей с моком `asyncio.sleep`.
 
 **Важно при написании новых тестов:** В `aiogram 3` глобальный объект `router` хранит ссылку `_parent_router`. В фикстурах тестов после `yield` обязательно сбрасывайте привязку (`router._parent_router = None`).

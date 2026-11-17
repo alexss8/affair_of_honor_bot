@@ -2,7 +2,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 MAX_LOG_BYTES = 512 * 1024  # 512 КБ на основной файл логов
-BACKUP_COUNT = 1            # Хранить только 1 старый файл (итого макс. 1 МБ на диске)
+BACKUP_COUNT = 1  # Хранить только 1 старый файл (итого макс. 1 МБ на диске)
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 ERROR_MARKER = "| ERROR |"

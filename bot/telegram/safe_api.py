@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Any, Awaitable, Callable, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from aiogram import Bot
 from aiogram.exceptions import (
@@ -18,9 +19,7 @@ logger = logging.getLogger("duel_bot")
 _EDIT_GONE_ERRORS = ("message to edit not found", "message can't be edited", "message_id_invalid")
 
 
-async def safe_answer_callback(
-    cb: CallbackQuery, text: Optional[str] = None, show_alert: bool = False
-) -> None:
+async def safe_answer_callback(cb: CallbackQuery, text: str | None = None, show_alert: bool = False) -> None:
     try:
         await cb.answer(text=text, show_alert=show_alert)
     except TelegramBadRequest as e:
@@ -64,7 +63,7 @@ async def _edit_with_retry(edit: Callable[[], Awaitable[Any]], chat_id: int) -> 
 async def safe_edit_text(
     message: Message,
     text: str,
-    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> bool:
     return await _edit_with_retry(
         lambda: message.edit_text(text=text, reply_markup=reply_markup, parse_mode="HTML"),
@@ -77,7 +76,7 @@ async def safe_edit_text_by_id(
     chat_id: int,
     message_id: int,
     text: str,
-    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> bool:
     """То же, что safe_edit_text, когда объекта Message нет (известны только chat_id и message_id)."""
     return await _edit_with_retry(
@@ -88,9 +87,7 @@ async def safe_edit_text_by_id(
     )
 
 
-async def safe_edit_markup(
-    message: Message, reply_markup: Optional[InlineKeyboardMarkup] = None
-) -> bool:
+async def safe_edit_markup(message: Message, reply_markup: InlineKeyboardMarkup | None = None) -> bool:
     try:
         await message.edit_reply_markup(reply_markup=reply_markup)
         return True
@@ -111,8 +108,8 @@ async def safe_edit_markup(
 async def safe_answer(
     target: Any,
     text: str,
-    reply_markup: Optional[InlineKeyboardMarkup] = None,
-) -> Optional[Message]:
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> Message | None:
     """Отправляет сообщение в чат события (Message, ChatMemberUpdated и т.п. с методом .answer).
 
     Один повтор при 429. Возвращает отправленное сообщение или None, если отправить не удалось.
@@ -136,12 +133,18 @@ async def safe_answer(
     return None
 
 
-async def safe_get_chat(bot: Bot, chat_id: int) -> Optional[Chat]:
+async def safe_get_chat(bot: Bot, chat_id: int) -> Chat | None:
     """Возвращает Chat или None, если Telegram его не отдал (например, "chat not found")."""
     try:
         return await bot.get_chat(chat_id)
-    except (TelegramBadRequest, TelegramNotFound, TelegramForbiddenError,
-            TelegramNetworkError, TelegramServerError, TelegramRetryAfter) as e:
+    except (
+        TelegramBadRequest,
+        TelegramNotFound,
+        TelegramForbiddenError,
+        TelegramNetworkError,
+        TelegramServerError,
+        TelegramRetryAfter,
+    ) as e:
         logger.warning(f"Не удалось получить чат {chat_id}: {e}")
         return None
 

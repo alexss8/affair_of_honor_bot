@@ -2,17 +2,19 @@ import asyncio
 import datetime
 import logging
 from unittest.mock import AsyncMock, patch
+
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import GetChat
 from aiogram.types import CallbackQuery, Chat, ForumTopicCreated, Message, MessageEntity, Update, User
 
-from config import Config
-from engine import DuelEngine
-from handlers import router
-from repository import SQLiteRepository
-import ui
+from bot.config import Config
+from bot.domain.engine import DuelEngine
+from bot.storage.sqlite_repo import SQLiteRepository
+from bot.telegram.handlers import router
+from bot.telegram.ui import texts
+
 
 @pytest.fixture
 def bot_env(tmp_path):
@@ -39,11 +41,13 @@ def bot_env(tmp_path):
             session.timeout_task.cancel()
     router._parent_router = None
 
+
 def make_callback_update(update_id: int, user: User, data: str, msg_id: int = 500, chat_id: int = -1001) -> Update:
     chat = Chat(id=chat_id, type="supergroup", title="Test Group")
     msg = Message(message_id=msg_id, date=datetime.datetime.now(), chat=chat, text="Battle")
     cb = CallbackQuery(id=str(update_id), from_user=user, chat_instance="123", message=msg, data=data)
     return Update(update_id=update_id, callback_query=cb)
+
 
 def make_msg_update(
     update_id: int,
@@ -65,6 +69,7 @@ def make_msg_update(
     )
     return Update(update_id=update_id, message=msg)
 
+
 async def test_revoke_invite_scenario(bot_env):
     dp, bot, engine, _ = bot_env
     alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
@@ -80,6 +85,7 @@ async def test_revoke_invite_scenario(bot_env):
         mock_edit.assert_awaited_once()
         assert "отозвал свой вызов" in mock_edit.call_args.kwargs["text"]
         assert engine.get_session(-1001, 500) is None
+
 
 async def test_challenge_by_username_and_text_mention(bot_env):
     dp, bot, _, repo = bot_env
@@ -119,10 +125,10 @@ async def test_challenge_by_username_and_text_mention(bot_env):
     await dp.feed_update(bot, make_msg_update(4, alice, "/duel", entities=entities_cmd, reply_to=topic_header))
     assert "Укажи соперника" in str(bot.call_args)
 
+
 async def test_cancel_command_scenario(bot_env):
     dp, bot, engine, repo = bot_env
     alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
     stranger = User(id=30, is_bot=False, first_name="Troll")
 
     cmd_cancel_ent = [MessageEntity(type="bot_command", offset=0, length=7)]
@@ -143,6 +149,7 @@ async def test_cancel_command_scenario(bot_env):
     assert engine.is_user_busy(-1001, 10) is False
     assert engine.is_user_busy(-1001, 20) is False
     assert repo.get_top(-1001) == []
+
 
 async def test_full_duel_and_surrender_scenario(bot_env):
     dp, bot, engine, repo = bot_env
@@ -174,8 +181,7 @@ async def test_full_duel_and_surrender_scenario(bot_env):
         await dp.feed_update(bot, make_callback_update(5, bob, "def_bot"))
         assert session.p2.hp == 1
         all_texts = [
-            call.kwargs.get("text") or (call.args[0] if call.args else "")
-            for call in mock_edit.call_args_list
+            call.kwargs.get("text") or (call.args[0] if call.args else "") for call in mock_edit.call_args_list
         ]
         all_footers = [
             call.kwargs["reply_markup"].inline_keyboard[-1][0].text
@@ -204,6 +210,7 @@ async def test_full_duel_and_surrender_scenario(bot_env):
     assert top[0].nickname == "@alice" and top[0].wins == 1
     assert top[1].nickname == "@bob" and top[1].losses == 1
 
+
 async def test_duel_timeout_victory_by_points(bot_env):
     dp, bot, engine, repo = bot_env
     bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
@@ -229,6 +236,7 @@ async def test_duel_timeout_victory_by_points(bot_env):
     assert len(top) == 2
     assert top[0].nickname == "@alice" and top[0].wins == 1
     assert top[1].nickname == "@bob" and top[1].losses == 1
+
 
 async def test_duel_timeout_draw_when_hp_equal(bot_env):
     dp, bot, engine, repo = bot_env
@@ -264,8 +272,10 @@ async def test_double_accept_click_starts_only_one_duel(bot_env):
 
     bot.get_chat.side_effect = slow_get_chat
 
-    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit, \
-            patch.object(engine, "start_duel", wraps=engine.start_duel) as spy_start:
+    with (
+        patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit,
+        patch.object(engine, "start_duel", wraps=engine.start_duel) as spy_start,
+    ):
         await asyncio.gather(
             dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=700)),
             dp.feed_update(bot, make_callback_update(2, bob, "accept_10_20", msg_id=700)),
@@ -306,5 +316,5 @@ async def test_accept_works_when_initiator_unknown_and_get_chat_fails(bot_env):
 
     session = engine.get_session(-1001, 702)
     assert session is not None
-    assert session.p1.name == ui.FALLBACK_NICK
+    assert session.p1.name == texts.FALLBACK_NICK
     assert session.p2.name == "@bob"

@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from typing import Optional
-from models import Player, PlayerStats
-from repository import BaseRepository
+
+from bot.domain.models import Player, PlayerStats
+from bot.storage.base import BaseRepository
+
 
 class QueuedRepository:
     """KISS-обертка над репозиторием: выносит частые фоновые записи в asyncio.Queue с батчингом."""
@@ -11,7 +12,7 @@ class QueuedRepository:
         self.repo = target_repo
         self.logger = logger
         self.queue: asyncio.Queue = asyncio.Queue()
-        self._worker_task: Optional[asyncio.Task] = None
+        self._worker_task: asyncio.Task | None = None
 
     def init(self) -> None:
         self.repo.init()
@@ -29,16 +30,16 @@ class QueuedRepository:
             except asyncio.CancelledError:
                 pass
 
-    def save_user(self, chat_id: int, user_id: int, username: Optional[str], first_name: str) -> None:
+    def save_user(self, chat_id: int, user_id: int, username: str | None, first_name: str) -> None:
         self.queue.put_nowait(("save_user", (chat_id, user_id, username, first_name)))
 
-    def save_users_batch(self, users: list[tuple[int, int, Optional[str], str]]) -> None:
+    def save_users_batch(self, users: list[tuple[int, int, str | None, str]]) -> None:
         self.repo.save_users_batch(users)
 
-    def get_user_by_username(self, chat_id: int, username: str) -> Optional[tuple[int, str]]:
+    def get_user_by_username(self, chat_id: int, username: str) -> tuple[int, str] | None:
         return self.repo.get_user_by_username(chat_id, username)
 
-    def get_user_names(self, chat_id: int, user_id: int) -> Optional[tuple[Optional[str], str]]:
+    def get_user_names(self, chat_id: int, user_id: int) -> tuple[str | None, str] | None:
         return self.repo.get_user_names(chat_id, user_id)
 
     def record_duel(self, chat_id: int, winner: Player, loser: Player) -> int:

@@ -1,6 +1,7 @@
 import datetime
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import (
@@ -14,11 +15,12 @@ from aiogram.exceptions import (
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
 from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
 
-from config import Config
-from engine import DuelEngine
-from handlers import router
-from repository import SQLiteRepository
-from tg_utils import safe_answer, safe_answer_callback, safe_edit_text, safe_edit_text_by_id, safe_reply
+from bot.config import Config
+from bot.domain.engine import DuelEngine
+from bot.storage.sqlite_repo import SQLiteRepository
+from bot.telegram.handlers import router
+from bot.telegram.safe_api import safe_answer, safe_answer_callback, safe_edit_text, safe_edit_text_by_id, safe_reply
+
 
 @pytest.fixture
 def env(tmp_path):
@@ -41,9 +43,12 @@ def env(tmp_path):
     yield dp, bot, engine, repo
     router._parent_router = None
 
+
 EDIT_ERROR_CASES = [
     (
-        TelegramBadRequest(method=EditMessageText(chat_id=-1001, text="x"), message="Bad Request: message is not modified"),
+        TelegramBadRequest(
+            method=EditMessageText(chat_id=-1001, text="x"), message="Bad Request: message is not modified"
+        ),
         True,
         True,
     ),
@@ -58,12 +63,16 @@ EDIT_ERROR_CASES = [
         True,
     ),
     (
-        TelegramBadRequest(method=EditMessageText(chat_id=-1001, text="x"), message="Bad Request: message to edit not found"),
+        TelegramBadRequest(
+            method=EditMessageText(chat_id=-1001, text="x"), message="Bad Request: message to edit not found"
+        ),
         False,
         False,
     ),
     (
-        TelegramBadRequest(method=EditMessageText(chat_id=-1001, text="x"), message="Bad Request: message can't be edited"),
+        TelegramBadRequest(
+            method=EditMessageText(chat_id=-1001, text="x"), message="Bad Request: message can't be edited"
+        ),
         False,
         False,
     ),
@@ -78,6 +87,7 @@ EDIT_ERROR_CASES = [
         False,
     ),
 ]
+
 
 @pytest.mark.parametrize("exc, expected_ok, session_should_survive", EDIT_ERROR_CASES)
 async def test_edit_text_error_contract_and_session_lifecycle(env, exc, expected_ok, session_should_survive):
@@ -106,6 +116,7 @@ async def test_edit_text_error_contract_and_session_lifecycle(env, exc, expected
     assert engine.is_user_busy(-1001, 10) is session_should_survive
     assert engine.is_user_busy(-1001, 20) is session_should_survive
 
+
 async def test_ignore_query_too_old():
     cb = MagicMock()
     cb.answer = AsyncMock(
@@ -116,6 +127,7 @@ async def test_ignore_query_too_old():
     )
     await safe_answer_callback(cb, "Ok")
     cb.answer.assert_awaited_once()
+
 
 async def test_fallback_to_answer_when_replied_message_deleted():
     msg = MagicMock()
@@ -131,6 +143,7 @@ async def test_fallback_to_answer_when_replied_message_deleted():
 
     msg.reply.assert_awaited_once()
     msg.answer.assert_awaited_once_with("Fallback text", parse_mode="HTML")
+
 
 async def test_retry_after_flood_control():
     msg = MagicMock()
@@ -164,12 +177,15 @@ async def test_safe_answer_returns_message_on_success():
     target.answer.assert_awaited_once_with("Hi", parse_mode="HTML")
 
 
-@pytest.mark.parametrize("exc", [
-    TelegramForbiddenError(method=SendMessage(chat_id=-1001, text="x"), message="Forbidden: bot was kicked"),
-    TelegramBadRequest(method=SendMessage(chat_id=-1001, text="x"), message="Bad Request: chat not found"),
-    TelegramNetworkError(method=SendMessage(chat_id=-1001, text="x"), message="Connection reset"),
-    TelegramServerError(method=SendMessage(chat_id=-1001, text="x"), message="Bad Gateway 502"),
-])
+@pytest.mark.parametrize(
+    "exc",
+    [
+        TelegramForbiddenError(method=SendMessage(chat_id=-1001, text="x"), message="Forbidden: bot was kicked"),
+        TelegramBadRequest(method=SendMessage(chat_id=-1001, text="x"), message="Bad Request: chat not found"),
+        TelegramNetworkError(method=SendMessage(chat_id=-1001, text="x"), message="Connection reset"),
+        TelegramServerError(method=SendMessage(chat_id=-1001, text="x"), message="Bad Gateway 502"),
+    ],
+)
 async def test_safe_answer_swallows_telegram_errors(exc):
     target = MagicMock()
     target.answer = AsyncMock(side_effect=exc)
@@ -179,10 +195,12 @@ async def test_safe_answer_swallows_telegram_errors(exc):
 async def test_safe_answer_retries_after_flood_control():
     target = MagicMock()
     sent = MagicMock()
-    target.answer = AsyncMock(side_effect=[
-        TelegramRetryAfter(method=SendMessage(chat_id=-1001, text="x"), message="Flood", retry_after=0.01),
-        sent,
-    ])
+    target.answer = AsyncMock(
+        side_effect=[
+            TelegramRetryAfter(method=SendMessage(chat_id=-1001, text="x"), message="Flood", retry_after=0.01),
+            sent,
+        ]
+    )
     assert await safe_answer(target, "Hi") is sent
     assert target.answer.await_count == 2
 
@@ -198,7 +216,11 @@ async def test_cancel_survives_flood_control_on_card_edit(env):
 
     chat = Chat(id=-1001, type="supergroup", title="Test")
     msg = Message(
-        message_id=42, date=datetime.datetime.now(), chat=chat, from_user=alice, text="/cancel",
+        message_id=42,
+        date=datetime.datetime.now(),
+        chat=chat,
+        from_user=alice,
+        text="/cancel",
         entities=[MessageEntity(type="bot_command", offset=0, length=7)],
     )
     await dp.feed_update(bot, Update(update_id=1, message=msg))

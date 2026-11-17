@@ -3,14 +3,16 @@ import datetime
 import logging
 import time
 from unittest.mock import AsyncMock, patch
+
 from aiogram import Bot, Dispatcher
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
-from config import Config
-from engine import DuelEngine
-from handlers import router
-from queued_repo import QueuedRepository
-from repository import SQLiteRepository
+from bot.config import Config
+from bot.domain.engine import DuelEngine
+from bot.storage.queued_repo import QueuedRepository
+from bot.storage.sqlite_repo import SQLiteRepository
+from bot.telegram.handlers import router
+
 
 async def test_500_concurrent_handles(tmp_path):
     sqlite_repo = SQLiteRepository(str(tmp_path / "load_test.db"))
@@ -50,7 +52,7 @@ async def test_500_concurrent_handles(tmp_path):
             updates.append(Update(update_id=i + 1, callback_query=cb))
 
         start_time = time.perf_counter()
-        with patch("handlers.asyncio.sleep", new=AsyncMock()):
+        with patch("bot.telegram.handlers.battle.asyncio.sleep", new=AsyncMock()):
             await asyncio.gather(*(dp.feed_update(bot, upd) for upd in updates))
         await repo.stop_worker()
         elapsed = time.perf_counter() - start_time

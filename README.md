@@ -36,14 +36,35 @@
 
 2. **Настройте окружение:**
    ```bash
-   python setup_env.py
+   python scripts/setup_env.py
    ```
    *(Интерактивный мастер запросит `BOT_TOKEN` от `@BotFather` и создаст файл `.env`).*
 
 3. **Запустите бота:**
    ```bash
-   python main.py
+   python -m bot
    ```
+
+---
+
+## 🗂 Структура проекта
+
+```
+bot/
+├── __main__.py            # точка входа: python -m bot
+├── config.py, logger.py
+├── domain/                # игровая логика без aiogram и БД: models, engine, phrases
+├── services/              # system_metrics — метрики для /status
+├── storage/               # base (Protocol), sqlite_repo, queued_repo
+└── telegram/
+    ├── safe_api.py        # безопасные обёртки над Telegram API
+    ├── middlewares.py     # кэш участников чата
+    ├── duel_timer.py      # таймаут дуэли
+    ├── handlers/          # common, invite, battle, admin, errors
+    └── ui/                # texts, keyboards
+scripts/                   # deploy.sh, setup_env.py
+tests/
+```
 
 ---
 
@@ -55,6 +76,7 @@
 | `ADMIN_ID` | — | Числовой Telegram ID администратора для доступа к `/status` и алертам |
 | `DEFAULT_HP` | `5` | Количество жизней у каждого бойца |
 | `TOP_LIMIT` | `10` | Количество позиций в таблице лидеров `/top` |
+| `DUEL_TIMEOUT_SEC` | `300` | Длительность дуэли в секундах; по истечении побеждает боец с большим запасом жизней |
 | `DB_PATH` | `duels.db` | Путь к файлу базы данных SQLite |
 | `LOG_FILE` | `bot.log` | Путь к файлу логов |
 

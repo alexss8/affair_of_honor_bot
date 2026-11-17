@@ -1,13 +1,14 @@
 import asyncio
 from dataclasses import dataclass, field
-from typing import Optional
+
 
 @dataclass
 class Player:
     id: int
     name: str
     hp: int
-    choice: Optional[str] = None
+    choice: str | None = None
+
 
 @dataclass
 class DuelSession:
@@ -18,8 +19,8 @@ class DuelSession:
     attacker_id: int
     max_hp: int
     last_log: str = ""
-    surrender_confirm_id: Optional[int] = None
-    timeout_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
+    surrender_confirm_id: int | None = None
+    timeout_task: asyncio.Task | None = field(default=None, repr=False, compare=False)
 
     @property
     def attacker(self) -> Player:
@@ -29,7 +30,7 @@ class DuelSession:
     def defender(self) -> Player:
         return self.p2 if self.attacker_id == self.p1.id else self.p1
 
-    def get_player(self, user_id: int) -> Optional[Player]:
+    def get_player(self, user_id: int) -> Player | None:
         if user_id == self.p1.id:
             return self.p1
         if user_id == self.p2.id:
@@ -38,6 +39,7 @@ class DuelSession:
 
     def get_opponent(self, user_id: int) -> Player:
         return self.p2 if user_id == self.p1.id else self.p1
+
 
 @dataclass
 class PlayerStats:

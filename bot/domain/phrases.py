@@ -116,6 +116,7 @@ BLOCK_PHRASES = {
     ],
 }
 
+
 def get_round_phrase(direction: str, is_blocked: bool, att_name: str, dfn_name: str) -> str:
     pool = BLOCK_PHRASES[direction] if is_blocked else HIT_PHRASES[direction]
     template = random.choice(pool)

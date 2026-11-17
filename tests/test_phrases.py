@@ -1,4 +1,5 @@
-from phrases import BLOCK_PHRASES, HIT_PHRASES, get_round_phrase
+from bot.domain.phrases import BLOCK_PHRASES, HIT_PHRASES, get_round_phrase
+
 
 def test_phrases_pools_and_formatting():
     for direction in ("top", "bot"):

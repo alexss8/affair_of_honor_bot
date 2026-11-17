@@ -17,16 +17,16 @@
 
 ## Этап 2. Переезд в пакетную структуру
 
-- [ ] 2.1 Создать пакет `bot/` и точку входа `python -m bot` (`bot/__main__.py`)
-- [ ] 2.2 `bot/domain/`: `models.py`, `engine.py`, `phrases.py`
-- [ ] 2.3 `bot/storage/`: `base.py` (Protocol), `sqlite_repo.py`, `queued_repo.py`
-- [ ] 2.4 `bot/telegram/`: `safe_api.py` (бывший `tg_utils.py`), `middlewares.py`
-- [ ] 2.5 `bot/telegram/ui/`: `texts.py`, `keyboards.py`
-- [ ] 2.6 `bot/telegram/handlers/`: `common.py`, `invite.py`, `battle.py`, `admin.py`, `errors.py` + сборка роутеров в `__init__.py`
-- [ ] 2.7 `bot/services/system_metrics.py`: RAM, диск, разбор логов для `/status`
-- [ ] 2.8 `scripts/`: `deploy.sh`, `setup_env.py`; команда запуска в systemd → `python -m bot`
-- [ ] 2.9 Поправить импорты в тестах, `pytest.ini`, README, DEPLOY.md, AGENTS.md
-- [ ] 2.10 `pyproject.toml` с настройками ruff; прогнать ruff по проекту
+- [x] 2.1 Создать пакет `bot/` и точку входа `python -m bot` (`bot/__main__.py`)
+- [x] 2.2 `bot/domain/`: `models.py`, `engine.py`, `phrases.py`
+- [x] 2.3 `bot/storage/`: `base.py` (Protocol), `sqlite_repo.py`, `queued_repo.py`
+- [x] 2.4 `bot/telegram/`: `safe_api.py` (бывший `tg_utils.py`), `middlewares.py`
+- [x] 2.5 `bot/telegram/ui/`: `texts.py`, `keyboards.py`
+- [x] 2.6 `bot/telegram/handlers/`: `common.py`, `invite.py`, `battle.py`, `admin.py`, `errors.py` + сборка роутеров в `__init__.py`
+- [x] 2.7 `bot/services/system_metrics.py`: RAM, диск, разбор логов для `/status`
+- [x] 2.8 `scripts/`: `deploy.sh`, `setup_env.py`; команда запуска в systemd → `python -m bot`
+- [x] 2.9 Поправить импорты в тестах, `pytest.ini`, README, DEPLOY.md, AGENTS.md
+- [x] 2.10 `pyproject.toml` с настройками ruff; прогнать ruff по проекту
 
 ## Этап 3. Архитектура дуэли
 

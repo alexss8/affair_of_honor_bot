@@ -1,6 +1,6 @@
 import html
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from models import DuelSession, Player, PlayerStats
+
+from bot.domain.models import DuelSession, Player, PlayerStats
 
 FALLBACK_NICK = "Дуэлянт"
 
@@ -14,45 +14,10 @@ def format_nick(username: str | None, first_name: str | None) -> str:
 def escape_nick(user) -> str:
     return format_nick(user.username, user.first_name)
 
-def invite_keyboard(p1_id: int, p2_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="⚔️ Принять вызов", callback_data=f"accept_{p1_id}_{p2_id}"),
-            InlineKeyboardButton(text="🏳️ Отказаться", callback_data=f"decline_{p1_id}_{p2_id}"),
-        ],
-        [
-            InlineKeyboardButton(text="🚫 Отозвать вызов", callback_data=f"revoke_{p1_id}_{p2_id}"),
-        ],
-    ])
 
 def render_invite(p1_name: str, p2_name: str) -> str:
     return f"🔥 <b>{p1_name}</b> вызывает <b>{p2_name}</b> на дуэль! ⚔️"
 
-def battle_keyboard(session: DuelSession, is_rolling: bool = False) -> InlineKeyboardMarkup:
-    if is_rolling:
-        footer_text = "🎲 Бросок кубиков..."
-    elif session.surrender_confirm_id is not None:
-        footer_text = "⚠️ Точно сдаться? (нажми еще раз)"
-    elif session.p1.choice and not session.p2.choice:
-        footer_text = f"⏳ Ждем {session.p2.name}... (Сдаться)"
-    elif session.p2.choice and not session.p1.choice:
-        footer_text = f"⏳ Ждем {session.p1.name}... (Сдаться)"
-    else:
-        footer_text = "🏳️ Сдаться"
-
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🛡 Блок сверху", callback_data="def_top", style="success"),
-            InlineKeyboardButton(text="⚔️ Удар сверху", callback_data="act_top", style="danger"),
-        ],
-        [
-            InlineKeyboardButton(text="🛡 Блок снизу", callback_data="def_bot", style="success"),
-            InlineKeyboardButton(text="⚔️ Удар снизу", callback_data="act_bot", style="danger"),
-        ],
-        [
-            InlineKeyboardButton(text=footer_text, callback_data="surrender"),
-        ],
-    ])
 
 def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False) -> str:
     def hp_bar(hp: int) -> str:
@@ -73,6 +38,7 @@ def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False)
         f"{def_icon} Защищается: <b>{session.defender.name}</b>"
     )
 
+
 def render_top(stats: list[PlayerStats], limit: int = 10) -> str:
     if not stats:
         return "🏆 В этом чате еще не было дуэлей. Станьте первыми!"
@@ -83,13 +49,17 @@ def render_top(stats: list[PlayerStats], limit: int = 10) -> str:
         lines.append(f"{prefix} {s.nickname} — <b>{s.wins}</b> побед / {s.losses} пор. ({s.winrate}%)")
     return "\n".join(lines)
 
-def render_victory(duel_id: int, winner: Player, reason: str, stats: list[PlayerStats], limit: int = 10, icon: str = "🏆") -> str:
+
+def render_victory(
+    duel_id: int, winner: Player, reason: str, stats: list[PlayerStats], limit: int = 10, icon: str = "🏆"
+) -> str:
     return (
         f"{icon} <b>ДУЭЛЬ #{duel_id} ОКОНЧЕНА!</b>\n\n"
         f"<i>{reason}</i>\n\n"
         f"Победитель: <b>{winner.name}</b> (+1 в рейтинг)\n\n"
         f"{render_top(stats, limit)}"
     )
+
 
 def render_draw(reason: str, stats: list[PlayerStats], limit: int = 10, icon: str = "🤝") -> str:
     return (
@@ -98,6 +68,7 @@ def render_draw(reason: str, stats: list[PlayerStats], limit: int = 10, icon: st
         f"Рейтинг игроков не изменился.\n\n"
         f"{render_top(stats, limit)}"
     )
+
 
 def plural(n: int, one: str, few: str, many: str) -> str:
     """Русское склонение: plural(1, "жизнь", "жизни", "жизней") -> "жизнь"."""
@@ -129,7 +100,8 @@ def render_help(default_hp: int, top_limit: int, duel_timeout_sec: float) -> str
         "• Игроки ходят по очереди: один атакует (сверху или снизу), второй защищается.\n"
         "• Выбор делается вслепую через кнопки под сообщением.\n"
         "• Если блок совпал с ударом — урон не проходит. Если нет — защитник теряет 1 жизнь.\n"
-        f"• На весь бой отводится <b>{format_duration(duel_timeout_sec)}</b>. Если время выйдет, победит боец с большим запасом жизней.\n\n"
+        f"• На весь бой отводится <b>{format_duration(duel_timeout_sec)}</b>. "
+        "Если время выйдет, победит боец с большим запасом жизней.\n\n"
         "<b>Команды чата:</b>\n"
         "/duel @ник — вызвать на бой\n"
         "/cancel — отменить свой текущий бой (если соперник пропал)\n"

@@ -4,6 +4,7 @@ from getpass import getpass
 
 ENV_FILE = ".env"
 
+
 def prompt_value(label: str, default: str = "", is_secret: bool = False, required: bool = True) -> str:
     prompt_str = f"{label} [{default}]: " if default else f"{label}: "
     while True:
@@ -12,6 +13,7 @@ def prompt_value(label: str, default: str = "", is_secret: bool = False, require
         if value or not required:
             return value
         print("❌ Это поле обязательно для заполнения.")
+
 
 def main() -> None:
     print("⚙️  Настройка окружения для Дуэльного Бота\n")
@@ -35,6 +37,7 @@ def main() -> None:
         f"ADMIN_ID={admin_id}\n"
         f"DEFAULT_HP={default_hp}\n"
         f"TOP_LIMIT={top_limit}\n"
+        f"DUEL_TIMEOUT_SEC={duel_timeout}\n"
         f"DB_PATH={db_path}\n"
         f"LOG_FILE={log_file}\n"
     )
@@ -48,6 +51,7 @@ def main() -> None:
         pass
 
     print(f"\n✅ Файл {ENV_FILE} успешно создан и защищен правами доступа (600)!")
+
 
 if __name__ == "__main__":
     main()

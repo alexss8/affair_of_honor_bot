@@ -1,9 +1,10 @@
 import asyncio
 import logging
-from typing import Optional
-from models import DuelSession, Player
-from phrases import get_round_phrase
-from repository import BaseRepository
+
+from bot.domain.models import DuelSession, Player
+from bot.domain.phrases import get_round_phrase
+from bot.storage.base import BaseRepository
+
 
 class DuelEngine:
     def __init__(self, repo: BaseRepository, logger: logging.Logger, default_hp: int = 5):
@@ -15,7 +16,7 @@ class DuelEngine:
     def is_user_busy(self, chat_id: int, user_id: int) -> bool:
         return any(s.chat_id == chat_id and s.get_player(user_id) is not None for s in self.sessions.values())
 
-    def get_session(self, chat_id: int, msg_id: int) -> Optional[DuelSession]:
+    def get_session(self, chat_id: int, msg_id: int) -> DuelSession | None:
         return self.sessions.get((chat_id, msg_id))
 
     @staticmethod
@@ -24,7 +25,7 @@ class DuelEngine:
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
 
-    def drop_session(self, chat_id: int, msg_id: int) -> Optional[DuelSession]:
+    def drop_session(self, chat_id: int, msg_id: int) -> DuelSession | None:
         """Удаляет сессию без записи в рейтинг (например, при удалении сообщения)."""
         session = self.sessions.pop((chat_id, msg_id), None)
         if session:
@@ -47,7 +48,7 @@ class DuelEngine:
         self.logger.info(f"Начата дуэль в чате {chat_id}: {p1.name} ({p1.id}) vs {p2.name} ({p2.id})")
         return session
 
-    def cancel_user_duel(self, chat_id: int, user_id: int) -> Optional[DuelSession]:
+    def cancel_user_duel(self, chat_id: int, user_id: int) -> DuelSession | None:
         """Находит активную дуэль игрока в чате и аннулирует её без записи в рейтинг."""
         for key, session in list(self.sessions.items()):
             if session.chat_id == chat_id and session.get_player(user_id) is not None:
@@ -61,10 +62,12 @@ class DuelEngine:
         self.sessions.pop((session.chat_id, session.message_id), None)
         self._cancel_timer(session)
         duel_id = self.repo.record_duel(session.chat_id, winner, loser)
-        self.logger.info(f"Дуэль #{duel_id} завершена (чат {session.chat_id}). Победитель: {winner.name}, Проигравший: {loser.name}")
+        self.logger.info(
+            f"Дуэль #{duel_id} завершена (чат {session.chat_id}). Победитель: {winner.name}, Проигравший: {loser.name}"
+        )
         return duel_id
 
-    def resolve_timeout(self, session: DuelSession) -> Optional[tuple[Player, Player]]:
+    def resolve_timeout(self, session: DuelSession) -> tuple[Player, Player] | None:
         """Завершает дуэль по таймауту. Возвращает (winner, loser) или None при ничьей."""
         if self.sessions.pop((session.chat_id, session.message_id), None) is None:
             return None
@@ -77,7 +80,7 @@ class DuelEngine:
 
     def resolve_round(self, session: DuelSession) -> tuple[str, bool]:
         att, dfn = session.attacker, session.defender
-        is_blocked = (att.choice == dfn.choice)
+        is_blocked = att.choice == dfn.choice
 
         if not is_blocked:
             dfn.hp -= 1

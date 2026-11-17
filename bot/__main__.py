@@ -1,13 +1,15 @@
 import asyncio
+
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, BotCommandScopeAllGroupChats
 
-from config import load_config
-from engine import DuelEngine
-from handlers import router
-from logger import setup_logger
-from queued_repo import QueuedRepository
-from repository import SQLiteRepository
+from bot.config import load_config
+from bot.domain.engine import DuelEngine
+from bot.logger import setup_logger
+from bot.storage.queued_repo import QueuedRepository
+from bot.storage.sqlite_repo import SQLiteRepository
+from bot.telegram.handlers import router
+
 
 async def main() -> None:
     config = load_config()
@@ -36,7 +38,7 @@ async def main() -> None:
                 BotCommand(command="top", description=f"Топ-{config.top_limit} дуэлянтов чата"),
                 BotCommand(command="help", description="Правила игры и команды"),
             ],
-            scope=BotCommandScopeAllGroupChats()
+            scope=BotCommandScopeAllGroupChats(),
         )
 
         await bot.delete_webhook(drop_pending_updates=True)
@@ -46,6 +48,7 @@ async def main() -> None:
         logger.info("Остановка бота, дописываем фоновую очередь...")
         await repo.stop_worker()
         await bot.session.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

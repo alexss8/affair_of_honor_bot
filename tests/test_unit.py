@@ -1,8 +1,11 @@
 import logging
+
 import pytest
-from engine import DuelEngine
-from repository import SQLiteRepository
-import ui
+
+from bot.domain.engine import DuelEngine
+from bot.storage.sqlite_repo import SQLiteRepository
+from bot.telegram.ui import texts
+
 
 @pytest.fixture
 def repo(tmp_path):
@@ -11,10 +14,12 @@ def repo(tmp_path):
     repository.init()
     return repository
 
+
 @pytest.fixture
 def engine(repo):
     logger = logging.getLogger("test_logger")
     return DuelEngine(repo=repo, logger=logger, default_hp=5)
+
 
 def test_user_cache_and_lookup(repo):
     repo.save_user(chat_id=-1001, user_id=42, username="Legolas_Greenleaf", first_name="Леголас")
@@ -26,6 +31,7 @@ def test_user_cache_and_lookup(repo):
     repo.save_user(chat_id=-1001, user_id=42, username="NewNick", first_name="Леголас")
     assert repo.get_user_by_username(-1001, "@newnick") == (42, "@newnick")
     assert repo.get_user_by_username(-1001, "@legolas_greenleaf") is None
+
 
 def test_cancel_duel_frees_players_without_rating(engine, repo):
     engine.start_duel(chat_id=1, msg_id=100, p1_id=10, p1_name="Alice", p2_id=20, p2_name="Bob")
@@ -42,6 +48,7 @@ def test_cancel_duel_frees_players_without_rating(engine, repo):
     assert engine.is_user_busy(1, 20) is False
     assert repo.get_top(1) == []
 
+
 def test_block_prevents_damage(engine):
     session = engine.start_duel(chat_id=1, msg_id=100, p1_id=10, p1_name="Alice", p2_id=20, p2_name="Bob")
     session.p1.choice = "top"
@@ -53,6 +60,7 @@ def test_block_prevents_damage(engine):
     assert session.p2.hp == 5
     assert session.attacker_id == 20
     assert session.p1.choice is None
+
 
 def test_hit_reduces_hp_and_finishes_game(engine, repo):
     session = engine.start_duel(chat_id=1, msg_id=100, p1_id=10, p1_name="Alice", p2_id=20, p2_name="Bob")
@@ -82,25 +90,26 @@ def test_hit_reduces_hp_and_finishes_game(engine, repo):
     assert top[0].nickname == "Alice"
     assert top[0].wins == 1
 
+
 def test_render_battle_status_icons_and_persistent_log(engine):
     session = engine.start_duel(chat_id=1, msg_id=100, p1_id=10, p1_name="Alice", p2_id=20, p2_name="Bob")
 
     # 1. Начало боя: красный кружок у атакующего, зеленый у защищающегося, стартовое сообщение
-    initial_text = ui.render_battle(session)
+    initial_text = texts.render_battle(session)
     assert "🔴 Атакует: <b>Alice</b>" in initial_text
     assert "🟢 Защищается: <b>Bob</b>" in initial_text
     assert "Бой начался! Выбирайте действия." in initial_text
 
     # 2. Атакующий выбрал удар -> красный кружок сменился на галочку, фраза осталась
     session.p1.choice = "top"
-    after_att_choice = ui.render_battle(session)
+    after_att_choice = texts.render_battle(session)
     assert "✅ Атакует: <b>Alice</b>" in after_att_choice
     assert "🟢 Защищается: <b>Bob</b>" in after_att_choice
     assert "Бой начался! Выбирайте действия." in after_att_choice
 
     # 3. Защищающийся выбрал блок -> оба с галочками, фраза все еще не пропала
     session.p2.choice = "bot"
-    both_chosen_text = ui.render_battle(session, is_rolling=True)
+    both_chosen_text = texts.render_battle(session, is_rolling=True)
     assert "✅ Атакует: <b>Alice</b>" in both_chosen_text
     assert "✅ Защищается: <b>Bob</b>" in both_chosen_text
     assert "Бой начался! Выбирайте действия." in both_chosen_text
@@ -108,7 +117,7 @@ def test_render_battle_status_icons_and_persistent_log(engine):
     # 4. Раунд завершился -> роли поменялись, кружки сбросились, фраза обновилась на новую
     round_log, is_over = engine.resolve_round(session)
     assert is_over is False
-    next_round_text = ui.render_battle(session)
+    next_round_text = texts.render_battle(session)
     assert "🔴 Атакует: <b>Bob</b>" in next_round_text
     assert "🟢 Защищается: <b>Alice</b>" in next_round_text
     assert round_log in next_round_text
@@ -116,33 +125,52 @@ def test_render_battle_status_icons_and_persistent_log(engine):
 
     # 5. В новом раунде защитник выбрал блок -> зеленый кружок сменился на галочку, фраза прошлого раунда сохранилась
     session.p1.choice = "top"
-    after_def_choice = ui.render_battle(session)
+    after_def_choice = texts.render_battle(session)
     assert "🔴 Атакует: <b>Bob</b>" in after_def_choice
     assert "✅ Защищается: <b>Alice</b>" in after_def_choice
     assert round_log in after_def_choice
 
 
-@pytest.mark.parametrize("n, expected", [
-    (1, "жизнь"), (2, "жизни"), (4, "жизни"), (5, "жизней"), (11, "жизней"),
-    (12, "жизней"), (21, "жизнь"), (22, "жизни"), (111, "жизней"), (0, "жизней"),
-])
+@pytest.mark.parametrize(
+    "n, expected",
+    [
+        (1, "жизнь"),
+        (2, "жизни"),
+        (4, "жизни"),
+        (5, "жизней"),
+        (11, "жизней"),
+        (12, "жизней"),
+        (21, "жизнь"),
+        (22, "жизни"),
+        (111, "жизней"),
+        (0, "жизней"),
+    ],
+)
 def test_plural(n, expected):
-    assert ui.plural(n, "жизнь", "жизни", "жизней") == expected
+    assert texts.plural(n, "жизнь", "жизни", "жизней") == expected
 
 
-@pytest.mark.parametrize("seconds, expected", [
-    (300, "5 минут"), (60, "1 минута"), (120, "2 минуты"), (90, "90 секунд"), (45, "45 секунд"), (1, "1 секунда"),
-])
+@pytest.mark.parametrize(
+    "seconds, expected",
+    [
+        (300, "5 минут"),
+        (60, "1 минута"),
+        (120, "2 минуты"),
+        (90, "90 секунд"),
+        (45, "45 секунд"),
+        (1, "1 секунда"),
+    ],
+)
 def test_format_duration(seconds, expected):
-    assert ui.format_duration(seconds) == expected
+    assert texts.format_duration(seconds) == expected
 
 
 def test_help_uses_configured_timeout_and_hp():
-    text = ui.render_help(default_hp=3, top_limit=10, duel_timeout_sec=180)
+    text = texts.render_help(default_hp=3, top_limit=10, duel_timeout_sec=180)
     assert "по <b>3 жизни</b>" in text
     assert "отводится <b>3 минуты</b>" in text
     assert "5 минут" not in text
 
-    text = ui.render_help(default_hp=5, top_limit=10, duel_timeout_sec=300)
+    text = texts.render_help(default_hp=5, top_limit=10, duel_timeout_sec=300)
     assert "по <b>5 жизней</b>" in text
     assert "отводится <b>5 минут</b>" in text

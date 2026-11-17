@@ -1,17 +1,18 @@
 import datetime
 import logging
 from unittest.mock import AsyncMock
+
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.types import Chat, Message, MessageEntity, Update, User
 
-from config import Config
-from engine import DuelEngine
-from handlers import router
-from models import Player
-from queued_repo import QueuedRepository
-from repository import SQLiteRepository
-from logger import is_error_line, make_formatter
+from bot.config import Config
+from bot.domain.engine import DuelEngine
+from bot.domain.models import Player
+from bot.logger import is_error_line, make_formatter
+from bot.storage.queued_repo import QueuedRepository
+from bot.storage.sqlite_repo import SQLiteRepository
+from bot.telegram.handlers import router
 
 
 def _write_real_log(log_file) -> None:
@@ -70,6 +71,7 @@ def health_env(tmp_path):
     yield dp, bot, repo, engine
     router._parent_router = None
 
+
 def make_status_update(update_id: int, user_id: int, chat_type: str = "private") -> Update:
     chat_id = user_id if chat_type == "private" else -1001
     chat = Chat(id=chat_id, type=chat_type)
@@ -84,6 +86,7 @@ def make_status_update(update_id: int, user_id: int, chat_type: str = "private")
     )
     return Update(update_id=update_id, message=msg)
 
+
 def test_repository_health_stats(health_env):
     _, _, repo, _ = health_env
     repo.record_duel(-1001, Player(1, "A", 5), Player(2, "B", 0))
@@ -94,6 +97,7 @@ def test_repository_health_stats(health_env):
     assert stats["today_duels"] == 1
     assert stats["queue_size"] == 1
     assert stats["db_size_kb"] > 0
+
 
 async def test_status_command_access_and_output(health_env):
     dp, bot, repo, _ = health_env
