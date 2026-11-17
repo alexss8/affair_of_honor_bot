@@ -46,7 +46,7 @@
 
 - Переносы строк контролируются через `.gitattributes` (все `.sh` и `.py` строго в `LF`).
 - Никогда не коммитьте `.env`, `*.db*`, `*.log` и локальные шпаргалки (`SSH_GUIDE.md`).
-- Деплой на Ubuntu 22.04 автоматизирован через `scripts/deploy.sh` (устанавливает окружение в `/home/botuser/duel_bot` с сохранением `.git` и настраивает `systemd`-службу `duelbot`, запускающую `python -m bot`, и ежедневный бэкап базы через cron `/etc/cron.d/duelbot-backup` → `scripts/backup_db.py`, 7 копий в `/home/botuser/backups`). Код синхронизируется через `rsync`; `.env`, база (`*.db*`), логи и `venv` при повторном деплое не затрагиваются — не возвращайте `rm -rf` целевой папки.
+- Деплой на Ubuntu 22.04 автоматизирован через `scripts/deploy.sh` (устанавливает окружение в `/home/botuser/duel_bot` с сохранением `.git` и настраивает `systemd`-службу `duelbot`, запускающую `python -m bot`, и ежедневный бэкап базы через cron `/etc/cron.d/duelbot-backup` → `scripts/backup_db.py`, 7 копий в `/home/botuser/backups`). Обновление уже установленного бота — `scripts/update.sh` (бэкап → `git pull --ff-only` → `pip` при изменении `requirements.txt` → рестарт → проверка `systemctl is-active`); тело скрипта обёрнуто в `main()`, чтобы `git pull`, переписывающий файл на ходу, не ломал выполнение. Код при первой установке синхронизируется через `rsync`; `.env`, база (`*.db*`), логи и `venv` при повторном деплое не затрагиваются — не возвращайте `rm -rf` целевой папки.
 
 ---
 
@@ -76,6 +76,7 @@ py -3.12 -m ruff format --check .
 - `test_phrases.py` — валидация пула реплик в `bot/domain/phrases.py`.
 - `test_migrations.py` — миграции схемы: новая база, старая база без версии (данные сохраняются), повторный запуск, откат упавшей миграции, отказ при базе новее кода.
 - `test_backup.py` — скрипт `scripts/backup_db.py`: копия живой WAL-базы, ротация 7 копий, отказ при отсутствии базы, чтение `DB_PATH` из окружения.
+- `test_update_script.py` — сквозной тест `scripts/update.sh` в настоящих git-репозиториях с заглушками `su`/`systemctl`/`journalctl` (на Windows через Git Bash, без bash — пропускается).
 - `test_load.py` — нагрузочный тест на 500 одновременных дуэлей с моком `asyncio.sleep`.
 
 **Важно при написании новых тестов:** В `aiogram 3` глобальный объект `router` хранит ссылку `_parent_router`. В фикстурах тестов после `yield` обязательно сбрасывайте привязку (`router._parent_router = None`).
