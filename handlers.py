@@ -8,14 +8,23 @@ import sys
 import time
 from typing import Optional
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramServerError
+from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError, TelegramServerError
 from aiogram.filters import ChatMemberUpdatedFilter, Command, IS_MEMBER, IS_NOT_MEMBER
 from aiogram.types import CallbackQuery, ChatMemberUpdated, ErrorEvent, Message
 from config import Config
 from engine import DuelEngine
+from logger import is_error_line
 from models import DuelSession
 from repository import BaseRepository
-from tg_utils import safe_answer_callback, safe_edit_markup, safe_edit_text, safe_reply
+from tg_utils import (
+    safe_answer,
+    safe_answer_callback,
+    safe_edit_markup,
+    safe_edit_text,
+    safe_edit_text_by_id,
+    safe_get_chat,
+    safe_reply,
+)
 import ui
 
 router = Router()
@@ -126,19 +135,17 @@ async def global_error_handler(event: ErrorEvent, logger: logging.Logger, bot: B
 
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_NOT_MEMBER >> IS_MEMBER))
 async def on_bot_added(event: ChatMemberUpdated, config: Config):
-    try:
-        await event.answer("👋 Всем привет! Я готов проводить дуэли в этом чате.\n\n" + ui.render_help(config.default_hp, config.top_limit), parse_mode="HTML")
-    except TelegramForbiddenError:
-        pass
+    greeting = "👋 Всем привет! Я готов проводить дуэли в этом чате.\n\n"
+    await safe_answer(event, greeting + ui.render_help(config.default_hp, config.top_limit, config.duel_timeout_sec))
 
 @router.message(Command("help", "start"))
 async def cmd_help(message: Message, config: Config):
-    await message.answer(ui.render_help(config.default_hp, config.top_limit), parse_mode="HTML")
+    await safe_answer(message, ui.render_help(config.default_hp, config.top_limit, config.duel_timeout_sec))
 
 @router.message(Command("top"))
 async def cmd_top(message: Message, repo: BaseRepository, config: Config):
     stats = repo.get_top(message.chat.id, config.top_limit)
-    await message.answer(ui.render_top(stats, config.top_limit), parse_mode="HTML")
+    await safe_answer(message, ui.render_top(stats, config.top_limit))
 
 @router.message(Command("status"), F.chat.type == "private")
 async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository, config: Config):
@@ -156,7 +163,7 @@ async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository,
     if os.path.exists(config.log_file):
         with open(config.log_file, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
-                if "[ERROR]" in line:
+                if is_error_line(line):
                     errors_count += 1
                     last_error = html.escape(line.strip()[-180:])
     text = (
@@ -174,7 +181,7 @@ async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository,
         f"• Записей ERROR: <b>{errors_count}</b>\n"
         f"• Последняя ошибка:\n<code>{last_error}</code>"
     )
-    await message.answer(text, parse_mode="HTML")
+    await safe_answer(message, text)
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, bot: Bot, engine: DuelEngine):
@@ -183,10 +190,7 @@ async def cmd_cancel(message: Message, bot: Bot, engine: DuelEngine):
         return await safe_reply(message, "У тебя сейчас нет активных дуэлей.")
     canceler_name = ui.escape_nick(message.from_user)
     cancel_text = f"🚫 <b>ДУЭЛЬ ОТМЕНЕНА</b>\n\n<i>Бой между {session.p1.name} и {session.p2.name} аннулирован игроком {canceler_name} (без изменения рейтинга).</i>"
-    try:
-        await bot.edit_message_text(chat_id=session.chat_id, message_id=session.message_id, text=cancel_text, parse_mode="HTML")
-    except (TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramServerError):
-        pass
+    await safe_edit_text_by_id(bot, session.chat_id, session.message_id, cancel_text)
     await safe_reply(message, "🚫 Твоя дуэль с соперником успешно отменена. Вы оба снова свободны!")
 
 def _resolve_target(message: Message, repo: BaseRepository) -> Optional[tuple[int, str, bool]]:
@@ -206,6 +210,16 @@ def _resolve_target(message: Message, repo: BaseRepository) -> Optional[tuple[in
                     return user_id, html.escape(display_nick), False
     return None
 
+async def _resolve_user_nick(bot: Bot, repo: BaseRepository, chat_id: int, user_id: int) -> str:
+    """Ник игрока: из кэша участников чата, иначе через get_chat, иначе заглушка."""
+    cached = repo.get_user_names(chat_id, user_id)
+    if cached:
+        return ui.format_nick(*cached)
+    chat = await safe_get_chat(bot, user_id)
+    if chat:
+        return ui.escape_nick(chat)
+    return ui.format_nick(None, None)
+
 @router.message(Command("duel"))
 async def cmd_duel(message: Message, engine: DuelEngine, repo: BaseRepository):
     target_data = _resolve_target(message, repo)
@@ -222,7 +236,7 @@ async def cmd_duel(message: Message, engine: DuelEngine, repo: BaseRepository):
         return await safe_reply(message, "Нельзя вызвать самого себя или бота.")
     if engine.is_user_busy(cid, p1.id) or engine.is_user_busy(cid, p2_id):
         return await safe_reply(message, "Один из игроков уже участвует в другой дуэли!")
-    await message.answer(ui.render_invite(ui.escape_nick(p1), p2_name), reply_markup=ui.invite_keyboard(p1.id, p2_id), parse_mode="HTML")
+    await safe_answer(message, ui.render_invite(ui.escape_nick(p1), p2_name), reply_markup=ui.invite_keyboard(p1.id, p2_id))
 
 @router.callback_query(F.data.startswith(("accept_", "decline_", "revoke_")))
 async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine, repo: BaseRepository, config: Config):
@@ -238,12 +252,18 @@ async def handle_invite(cb: CallbackQuery, bot: Bot, engine: DuelEngine, repo: B
     if act == "decline":
         await safe_answer_callback(cb)
         return await safe_edit_text(cb.message, "🏳️ Вызов на дуэль был отклонен.")
+    msg_id = cb.message.message_id
+    if engine.get_session(cid, msg_id):
+        return await safe_answer_callback(cb, "Дуэль уже началась!")
+    p1_name = await _resolve_user_nick(bot, repo, cid, p1_id)
+    # Между проверками и созданием сессии не должно быть await: иначе двойной клик создаст две дуэли.
+    if engine.get_session(cid, msg_id):
+        return await safe_answer_callback(cb, "Дуэль уже началась!")
     if engine.is_user_busy(cid, p1_id) or engine.is_user_busy(cid, p2_id):
         await safe_answer_callback(cb)
         return await safe_edit_text(cb.message, "❌ Один из игроков уже вступил в другой бой.")
+    session = engine.start_duel(cid, msg_id, p1_id, p1_name, p2_id, ui.escape_nick(cb.from_user))
     await safe_answer_callback(cb)
-    p1_chat = await bot.get_chat(p1_id)
-    session = engine.start_duel(cid, cb.message.message_id, p1_id, ui.escape_nick(p1_chat), p2_id, ui.escape_nick(cb.from_user))
     ok = await safe_edit_text(cb.message, ui.render_battle(session), reply_markup=ui.battle_keyboard(session))
     if not ok:
         engine.drop_session(cid, cb.message.message_id)

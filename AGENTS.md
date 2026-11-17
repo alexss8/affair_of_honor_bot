@@ -12,7 +12,7 @@
   - `ui.py` — только генерация HTML-текстов и Inline-клавиатур. Никаких обращений к БД или API Telegram.
   - `handlers.py` — только маршрутизация команд/коллбэков, валидация прав игрока и склейка `engine`, `repo` и `ui`.
   - `repository.py` / `queued_repo.py` — вся работа с SQLite.
-- **Безопасность Telegram API:** Никогда не вызывайте `message.edit_text`, `message.edit_reply_markup`, `message.reply` или `cb.answer` напрямую в `handlers.py`. Всегда используйте безопасные обертки из `tg_utils.py` (`safe_edit_text`, `safe_edit_markup`, `safe_reply`, `safe_answer_callback`), которые перехватывают `TelegramBadRequest`, `TelegramRetryAfter` и сетевые сбои.
+- **Безопасность Telegram API:** Никогда не вызывайте `message.answer`, `message.reply`, `message.edit_text`, `message.edit_reply_markup`, `bot.edit_message_text`, `bot.get_chat` или `cb.answer` напрямую в `handlers.py`. Всегда используйте безопасные обертки из `tg_utils.py` (`safe_answer`, `safe_reply`, `safe_edit_text`, `safe_edit_text_by_id`, `safe_edit_markup`, `safe_get_chat`, `safe_answer_callback`), которые перехватывают `TelegramBadRequest`, `TelegramRetryAfter` и сетевые сбои.
 - **Защита от XSS/HTML-инъекций:** Любые имена пользователей из Telegram перед вставкой в HTML-сообщения обязаны проходить через `ui.escape_nick()` или `html.escape()`.
 
 ---
@@ -39,24 +39,29 @@
 
 - Переносы строк контролируются через `.gitattributes` (все `.sh` и `.py` строго в `LF`).
 - Никогда не коммитьте `.env`, `*.db*`, `*.log` и локальные шпаргалки (`SSH_GUIDE.md`).
-- Деплой на Ubuntu 22.04 автоматизирован через `deploy.sh` (устанавливает окружение в `/home/botuser/duel_bot` с сохранением `.git` и настраивает `systemd`-службу `duelbot`).
+- Деплой на Ubuntu 22.04 автоматизирован через `deploy.sh` (устанавливает окружение в `/home/botuser/duel_bot` с сохранением `.git` и настраивает `systemd`-службу `duelbot`). Код синхронизируется через `rsync`; `.env`, база (`*.db*`), логи и `venv` при повторном деплое не затрагиваются — не возвращайте `rm -rf` целевой папки.
 
 ---
 
 ## 4. Тестирование и проверка изменений
 
-После любых правок в коде обязательно запускайте полный набор тестов (все 22 теста должны проходить):
+После любых правок в коде обязательно запускайте полный набор тестов (все тесты должны проходить):
 
 ```bash
 py -3.12 -m pytest -v
 ```
-*(На Linux/Ubuntu: `pytest -v`)*
+*(На Linux/Ubuntu: `pytest -v`. Зависимости для тестов: `pip install -r requirements-dev.txt`.)*
+
+Новый функционал и исправления багов сопровождаются тестами; тест на баг должен падать на старом коде.
+
+### План работ
+Текущий план улучшений — `ROADMAP.md` (чек-лист по этапам). Выполненные пункты отмечаются `[x]`.
 
 ### Структура тестов (`tests/`):
-- `test_unit.py` — логика раундов, отмена боя (`/cancel`), работа кэша и рейтинга SQLite.
-- `test_scenarios.py` — сквозные сценарии через `aiogram.Dispatcher` (вызов, отзыв вызова, сдача, отмена).
+- `test_unit.py` — логика раундов, отмена боя (`/cancel`), работа кэша и рейтинга SQLite, склонения и текст справки.
+- `test_scenarios.py` — сквозные сценарии через `aiogram.Dispatcher` (вызов, отзыв вызова, сдача, отмена, двойное нажатие «Принять», ник инициатора из кэша).
 - `test_tg_errors.py` — проверка контракта `tg_utils.py` на все ошибки Telegram API и очистка зависших сессий при удалении сообщения админом.
-- `test_health.py` — проверка метрик БД и прав доступа к админ-команде `/status`.
+- `test_health.py` — проверка метрик БД и прав доступа к админ-команде `/status`; лог для теста пишется настоящим форматтером из `logger.py`.
 - `test_phrases.py` — валидация пула реплик в `phrases.py`.
 - `test_load.py` — нагрузочный тест на 500 одновременных дуэлей с моком `asyncio.sleep`.
 

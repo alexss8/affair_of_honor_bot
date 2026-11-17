@@ -65,7 +65,7 @@
 - **Деплой на сервер (Ubuntu 22.04):** пошаговая инструкция по установке и обновлению описана в **[DEPLOY.md](DEPLOY.md)**.
 - **Запуск тестов:**
   ```bash
-  pip install pytest pytest-asyncio
+  pip install -r requirements-dev.txt
   pytest -v
   ```
 

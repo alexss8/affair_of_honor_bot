@@ -14,7 +14,7 @@ echo "🚀 Начинаем развертывание Дуэльного Бот
 
 echo "📦 1/6. Установка Python 3.12, Git и системных утилит..."
 apt-get update -y
-apt-get install -y software-properties-common ufw curl git
+apt-get install -y software-properties-common ufw curl git rsync
 if ! command -v python3.12 &> /dev/null; then
   add-apt-repository ppa:deadsnakes/ppa -y
   apt-get update -y
@@ -32,9 +32,15 @@ fi
 
 TARGET_DIR="/home/$BOT_USER/duel_bot"
 if [ "$APP_DIR" != "$TARGET_DIR" ]; then
-  rm -rf "$TARGET_DIR"
   mkdir -p "$TARGET_DIR"
-  cp -a "$APP_DIR"/. "$TARGET_DIR"/
+  # Синхронизируем код (включая .git), но никогда не трогаем данные прошлой установки:
+  # .env, базу (duels.db, -wal, -shm), логи и venv. Исключённые файлы rsync не удаляет даже с --delete.
+  rsync -a --delete \
+    --exclude '.env' \
+    --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm' \
+    --exclude '*.log' --exclude '*.log.*' \
+    --exclude 'venv/' \
+    "$APP_DIR"/ "$TARGET_DIR"/
 fi
 
 chown -R "$BOT_USER:$BOT_USER" "$TARGET_DIR"

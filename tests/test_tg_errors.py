@@ -12,13 +12,13 @@ from aiogram.exceptions import (
     TelegramServerError,
 )
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
-from aiogram.types import CallbackQuery, Chat, Message, Update, User
+from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
 
 from config import Config
 from engine import DuelEngine
 from handlers import router
 from repository import SQLiteRepository
-from tg_utils import safe_answer_callback, safe_edit_text, safe_reply
+from tg_utils import safe_answer, safe_answer_callback, safe_edit_text, safe_edit_text_by_id, safe_reply
 
 @pytest.fixture
 def env(tmp_path):
@@ -147,3 +147,62 @@ async def test_retry_after_flood_control():
     )
     assert await safe_edit_text(msg, "Updated after rate limit") is True
     assert msg.edit_text.await_count == 2
+
+
+@pytest.mark.parametrize("exc, expected_ok, _survive", EDIT_ERROR_CASES)
+async def test_safe_edit_text_by_id_error_contract(exc, expected_ok, _survive):
+    bot = AsyncMock(spec=Bot)
+    bot.edit_message_text.side_effect = exc
+    assert await safe_edit_text_by_id(bot, -1001, 777, "Text") is expected_ok
+
+
+async def test_safe_answer_returns_message_on_success():
+    target = MagicMock()
+    sent = MagicMock()
+    target.answer = AsyncMock(return_value=sent)
+    assert await safe_answer(target, "Hi") is sent
+    target.answer.assert_awaited_once_with("Hi", parse_mode="HTML")
+
+
+@pytest.mark.parametrize("exc", [
+    TelegramForbiddenError(method=SendMessage(chat_id=-1001, text="x"), message="Forbidden: bot was kicked"),
+    TelegramBadRequest(method=SendMessage(chat_id=-1001, text="x"), message="Bad Request: chat not found"),
+    TelegramNetworkError(method=SendMessage(chat_id=-1001, text="x"), message="Connection reset"),
+    TelegramServerError(method=SendMessage(chat_id=-1001, text="x"), message="Bad Gateway 502"),
+])
+async def test_safe_answer_swallows_telegram_errors(exc):
+    target = MagicMock()
+    target.answer = AsyncMock(side_effect=exc)
+    assert await safe_answer(target, "Hi") is None
+
+
+async def test_safe_answer_retries_after_flood_control():
+    target = MagicMock()
+    sent = MagicMock()
+    target.answer = AsyncMock(side_effect=[
+        TelegramRetryAfter(method=SendMessage(chat_id=-1001, text="x"), message="Flood", retry_after=0.01),
+        sent,
+    ])
+    assert await safe_answer(target, "Hi") is sent
+    assert target.answer.await_count == 2
+
+
+async def test_cancel_survives_flood_control_on_card_edit(env):
+    dp, bot, engine, _ = env
+    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
+    engine.start_duel(chat_id=-1001, msg_id=500, p1_id=10, p1_name="@alice", p2_id=20, p2_name="@bob")
+    bot.edit_message_text.side_effect = [
+        TelegramRetryAfter(method=EditMessageText(chat_id=-1001, text="x"), message="Flood", retry_after=0.01),
+        True,
+    ]
+
+    chat = Chat(id=-1001, type="supergroup", title="Test")
+    msg = Message(
+        message_id=42, date=datetime.datetime.now(), chat=chat, from_user=alice, text="/cancel",
+        entities=[MessageEntity(type="bot_command", offset=0, length=7)],
+    )
+    await dp.feed_update(bot, Update(update_id=1, message=msg))
+
+    assert bot.edit_message_text.await_count == 2
+    assert engine.get_session(-1001, 500) is None
+    assert "успешно отменена" in str(bot.call_args_list)

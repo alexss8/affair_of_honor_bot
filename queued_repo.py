@@ -38,6 +38,9 @@ class QueuedRepository:
     def get_user_by_username(self, chat_id: int, username: str) -> Optional[tuple[int, str]]:
         return self.repo.get_user_by_username(chat_id, username)
 
+    def get_user_names(self, chat_id: int, user_id: int) -> Optional[tuple[Optional[str], str]]:
+        return self.repo.get_user_names(chat_id, user_id)
+
     def record_duel(self, chat_id: int, winner: Player, loser: Player) -> int:
         return self.repo.record_duel(chat_id, winner, loser)
 

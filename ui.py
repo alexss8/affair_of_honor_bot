@@ -2,9 +2,17 @@ import html
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from models import DuelSession, Player, PlayerStats
 
-def escape_nick(user) -> str:
-    raw = f"@{user.username}" if user.username else user.first_name
+FALLBACK_NICK = "Дуэлянт"
+
+
+def format_nick(username: str | None, first_name: str | None) -> str:
+    """Отображаемый ник (@username или имя), экранированный для HTML."""
+    raw = f"@{username}" if username else (first_name or FALLBACK_NICK)
     return html.escape(raw)
+
+
+def escape_nick(user) -> str:
+    return format_nick(user.username, user.first_name)
 
 def invite_keyboard(p1_id: int, p2_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -91,18 +99,37 @@ def render_draw(reason: str, stats: list[PlayerStats], limit: int = 10, icon: st
         f"{render_top(stats, limit)}"
     )
 
-def render_help(default_hp: int, top_limit: int) -> str:
+def plural(n: int, one: str, few: str, many: str) -> str:
+    """Русское склонение: plural(1, "жизнь", "жизни", "жизней") -> "жизнь"."""
+    n = abs(n)
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
+def format_duration(seconds: float) -> str:
+    """300 -> "5 минут", 90 -> "90 секунд"."""
+    total = int(seconds)
+    if total >= 60 and total % 60 == 0:
+        minutes = total // 60
+        return f"{minutes} {plural(minutes, 'минута', 'минуты', 'минут')}"
+    return f"{total} {plural(total, 'секунда', 'секунды', 'секунд')}"
+
+
+def render_help(default_hp: int, top_limit: int, duel_timeout_sec: float) -> str:
     return (
         "⚔️ <b>ДУЭЛЬНЫЙ БОТ — ПРАВИЛА И КОМАНДЫ</b>\n\n"
         "<b>Как начать бой:</b>\n"
         "• Напишите <code>/duel @ник</code> (выбрав соперника из списка)\n"
         "• Или ответьте (Reply) на любое сообщение соперника командой /duel\n\n"
         "<b>Правила дуэли:</b>\n"
-        f"• У каждого бойца по <b>{default_hp} жизней</b>.\n"
+        f"• У каждого бойца по <b>{default_hp} {plural(default_hp, 'жизни', 'жизни', 'жизней')}</b>.\n"
         "• Игроки ходят по очереди: один атакует (сверху или снизу), второй защищается.\n"
         "• Выбор делается вслепую через кнопки под сообщением.\n"
         "• Если блок совпал с ударом — урон не проходит. Если нет — защитник теряет 1 жизнь.\n"
-        "• На весь бой отводится <b>5 минут</b>. Если время выйдет, победит боец с большим запасом жизней.\n\n"
+        f"• На весь бой отводится <b>{format_duration(duel_timeout_sec)}</b>. Если время выйдет, победит боец с большим запасом жизней.\n\n"
         "<b>Команды чата:</b>\n"
         "/duel @ник — вызвать на бой\n"
         "/cancel — отменить свой текущий бой (если соперник пропал)\n"

@@ -120,3 +120,29 @@ def test_render_battle_status_icons_and_persistent_log(engine):
     assert "🔴 Атакует: <b>Bob</b>" in after_def_choice
     assert "✅ Защищается: <b>Alice</b>" in after_def_choice
     assert round_log in after_def_choice
+
+
+@pytest.mark.parametrize("n, expected", [
+    (1, "жизнь"), (2, "жизни"), (4, "жизни"), (5, "жизней"), (11, "жизней"),
+    (12, "жизней"), (21, "жизнь"), (22, "жизни"), (111, "жизней"), (0, "жизней"),
+])
+def test_plural(n, expected):
+    assert ui.plural(n, "жизнь", "жизни", "жизней") == expected
+
+
+@pytest.mark.parametrize("seconds, expected", [
+    (300, "5 минут"), (60, "1 минута"), (120, "2 минуты"), (90, "90 секунд"), (45, "45 секунд"), (1, "1 секунда"),
+])
+def test_format_duration(seconds, expected):
+    assert ui.format_duration(seconds) == expected
+
+
+def test_help_uses_configured_timeout_and_hp():
+    text = ui.render_help(default_hp=3, top_limit=10, duel_timeout_sec=180)
+    assert "по <b>3 жизни</b>" in text
+    assert "отводится <b>3 минуты</b>" in text
+    assert "5 минут" not in text
+
+    text = ui.render_help(default_hp=5, top_limit=10, duel_timeout_sec=300)
+    assert "по <b>5 жизней</b>" in text
+    assert "отводится <b>5 минут</b>" in text

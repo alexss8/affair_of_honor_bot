@@ -11,12 +11,38 @@ from handlers import router
 from models import Player
 from queued_repo import QueuedRepository
 from repository import SQLiteRepository
+from logger import is_error_line, make_formatter
+
+
+def _write_real_log(log_file) -> None:
+    """Пишет лог через тот же форматтер, что и боевой логгер, чтобы тест ловил рассинхрон формата."""
+    test_logger = logging.getLogger("health_log_writer")
+    test_logger.setLevel(logging.INFO)
+    test_logger.propagate = False
+    handler = logging.FileHandler(log_file, encoding="utf-8")
+    handler.setFormatter(make_formatter())
+    test_logger.addHandler(handler)
+    try:
+        test_logger.info("Start")
+        test_logger.warning("Just a warning")
+        test_logger.error("Test boom")
+    finally:
+        test_logger.removeHandler(handler)
+        handler.close()
+
+
+def test_is_error_line_matches_only_error_level(tmp_path):
+    log_file = tmp_path / "levels.log"
+    _write_real_log(log_file)
+    lines = log_file.read_text(encoding="utf-8").splitlines()
+    assert [is_error_line(line) for line in lines] == [False, False, True]
+
 
 @pytest.fixture
 def health_env(tmp_path):
     db_file = tmp_path / "health_test.db"
     log_file = tmp_path / "health_bot.log"
-    log_file.write_text("2026-11-15 12:00:00 [INFO] Start\n2026-11-15 12:05:00 [ERROR] Test boom\n", encoding="utf-8")
+    _write_real_log(log_file)
 
     sqlite_repo = SQLiteRepository(str(db_file))
     logger = logging.getLogger("health_test")

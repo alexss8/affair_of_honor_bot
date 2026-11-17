@@ -4,12 +4,15 @@ import logging
 from unittest.mock import AsyncMock, patch
 import pytest
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import GetChat
 from aiogram.types import CallbackQuery, Chat, ForumTopicCreated, Message, MessageEntity, Update, User
 
 from config import Config
 from engine import DuelEngine
 from handlers import router
 from repository import SQLiteRepository
+import ui
 
 @pytest.fixture
 def bot_env(tmp_path):
@@ -245,3 +248,63 @@ async def test_duel_timeout_draw_when_hp_equal(bot_env):
         assert "Рейтинг игроков не изменился" in last_text
 
     assert repo.get_top(-1001) == []
+
+
+def _chat_not_found() -> TelegramBadRequest:
+    return TelegramBadRequest(method=GetChat(chat_id=10), message="Bad Request: chat not found")
+
+
+async def test_double_accept_click_starts_only_one_duel(bot_env):
+    dp, bot, engine, _ = bot_env
+    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
+
+    async def slow_get_chat(*args, **kwargs):
+        await asyncio.sleep(0.05)
+        return Chat(id=10, type="private", first_name="Alice", username="alice")
+
+    bot.get_chat.side_effect = slow_get_chat
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit, \
+            patch.object(engine, "start_duel", wraps=engine.start_duel) as spy_start:
+        await asyncio.gather(
+            dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=700)),
+            dp.feed_update(bot, make_callback_update(2, bob, "accept_10_20", msg_id=700)),
+        )
+
+        assert spy_start.call_count == 1
+        assert engine.get_session(-1001, 700) is not None
+        edited_texts = [call.kwargs["text"] for call in mock_edit.call_args_list]
+        assert not any("уже вступил в другой бой" in t for t in edited_texts)
+    assert "Дуэль уже началась" in str(bot.call_args_list)
+
+
+async def test_accept_takes_initiator_nick_from_cache(bot_env):
+    dp, bot, engine, _ = bot_env
+    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
+    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
+    bot.get_chat.side_effect = _chat_not_found()
+
+    # Alice пишет в чат -> попадает в кэш участников
+    await dp.feed_update(bot, make_msg_update(1, alice, "Вызываю!"))
+
+    with patch.object(Message, "edit_text", new=AsyncMock()):
+        await dp.feed_update(bot, make_callback_update(2, bob, "accept_10_20", msg_id=701))
+
+    session = engine.get_session(-1001, 701)
+    assert session is not None
+    assert session.p1.name == "@alice"
+    bot.get_chat.assert_not_awaited()
+
+
+async def test_accept_works_when_initiator_unknown_and_get_chat_fails(bot_env):
+    dp, bot, engine, _ = bot_env
+    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
+    bot.get_chat.side_effect = _chat_not_found()
+
+    with patch.object(Message, "edit_text", new=AsyncMock()):
+        await dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=702))
+
+    session = engine.get_session(-1001, 702)
+    assert session is not None
+    assert session.p1.name == ui.FALLBACK_NICK
+    assert session.p2.name == "@bob"
