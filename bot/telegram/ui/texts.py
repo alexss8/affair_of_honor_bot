@@ -1,6 +1,6 @@
 import html
 
-from bot.domain.models import DuelSession, OutcomeKind, Player, PlayerStats
+from bot.domain.models import DuelInvite, DuelSession, OutcomeKind, Player, PlayerStats
 from bot.services.duel_service import FinishedDuel
 
 FALLBACK_NICK = "Дуэлянт"
@@ -18,6 +18,38 @@ def escape_nick(user) -> str:
 
 def render_invite(p1_name: str, p2_name: str) -> str:
     return f"🔥 <b>{p1_name}</b> вызывает <b>{p2_name}</b> на дуэль! ⚔️"
+
+
+INVITE_EXPIRED = "⌛ Вызов на дуэль истёк — соперник не ответил вовремя."
+_PAUSE_NOTE = "\n\n⏸ <i>Бот перезапускается — {what} продолжится сразу после запуска, время на паузе.</i>"
+
+
+def render_paused(session: DuelSession) -> str:
+    return render_battle(session) + _PAUSE_NOTE.format(what="бой")
+
+
+def render_invite_paused(invite: DuelInvite) -> str:
+    return render_invite(invite.challenger_name, invite.target_name) + _PAUSE_NOTE.format(what="вызов")
+
+
+def render_cancelled(session: DuelSession, canceler_name: str) -> str:
+    return (
+        f"🚫 <b>ДУЭЛЬ ОТМЕНЕНА</b>\n\n<i>Бой между {session.p1.name} и {session.p2.name} "
+        f"аннулирован игроком {canceler_name} (без изменения рейтинга).</i>"
+    )
+
+
+def render_interrupted(session: DuelSession) -> str:
+    return (
+        f"⚠️ <b>БОЙ ПРЕРВАН</b>\n\n<i>Бой между {session.p1.name} и {session.p2.name} "
+        "прерван перезапуском бота, рейтинг не изменён.</i>"
+    )
+
+
+def render_invite_interrupted(invite: DuelInvite) -> str:
+    return (
+        f"⚠️ Вызов {invite.challenger_name} → {invite.target_name} снят: бот перезапускался. Брось вызов заново: /duel"
+    )
 
 
 def render_battle(session: DuelSession) -> str:

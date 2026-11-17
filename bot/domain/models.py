@@ -70,6 +70,7 @@ class DuelSession:
     phase: DuelPhase = DuelPhase.CHOOSING
     last_log: str = ""
     surrender_confirm_id: int | None = None
+    deadline: float | None = None  # time.time() окончания боя; ставится при запуске таймера
     timeout_task: asyncio.Task | None = field(default=None, repr=False, compare=False)
     # Сериализует правки карточки боя: правка, начатая раньше, не перезапишет более свежее состояние.
     card_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)

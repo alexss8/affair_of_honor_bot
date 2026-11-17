@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import pytest
@@ -54,6 +55,48 @@ def test_user_cache_and_lookup(repo):
     repo.save_user(chat_id=-1001, user_id=42, username="NewNick", first_name="Леголас")
     assert repo.get_user_by_username(-1001, "@newnick") == (42, "@newnick")
     assert repo.get_user_by_username(-1001, "@legolas_greenleaf") is None
+
+
+def test_suspended_state_roundtrip_freezes_time(repo, engine):
+    """Снимок боёв и вызовов переживает рестарт; оставшееся время отсчитывается от момента загрузки."""
+    session = engine.start_duel(1, 100, 10, "Alice", 20, "Bob")
+    session.p1.hp, session.p2.choice = 3, Zone.BOT
+    session.attacker_id, session.last_log = 20, "Удар!"
+    session.deadline = 1000.0 + 120
+    no_timer = engine.start_duel(1, 101, 30, "Carol", 40, "Dave")
+    invite = engine.create_invite(2, 200, 50, "Eve", 60, "Frank", now=1000.0)  # ttl 60
+
+    repo.save_suspended([session, no_timer], [invite], now=1000.0)
+    sessions, invites = repo.pop_suspended(now=5000.0)
+
+    restored = {s.message_id: s for s in sessions}
+    s = restored[100]
+    assert (s.chat_id, s.p1.id, s.p1.name, s.p1.hp, s.p1.choice) == (1, 10, "Alice", 3, None)
+    assert (s.p2.id, s.p2.name, s.p2.hp, s.p2.choice) == (20, "Bob", 5, Zone.BOT)
+    assert (s.attacker_id, s.max_hp, s.last_log, s.deadline) == (20, 5, "Удар!", 5120.0)
+    assert restored[101].deadline is None
+    assert len(invites) == 1
+    inv = invites[0]
+    assert (inv.chat_id, inv.message_id, inv.challenger_id, inv.challenger_name) == (2, 200, 50, "Eve")
+    assert (inv.target_id, inv.target_name, inv.expires_at) == (60, "Frank", 5060.0)
+    assert repo.pop_suspended(now=5000.0) == ([], [])
+
+
+def test_restore_registers_sessions_and_invites(engine, repo):
+    rolling = engine.start_duel(1, 100, 10, "Alice", 20, "Bob")
+    rolling.p1.choice = rolling.p2.choice = Zone.TOP
+    choosing = engine.start_duel(1, 101, 30, "Carol", 40, "Dave")
+    invite = engine.create_invite(1, 200, 50, "Eve", 60, "Frank")
+    repo.save_suspended(*engine.interrupt_all(), now=0.0)
+    sessions, invites = repo.pop_suspended(now=0.0)
+
+    engine.restore(sessions, invites)
+
+    assert engine.get_session(1, 100).phase is DuelPhase.ROLLING
+    assert engine.get_session(1, 101).phase is DuelPhase.CHOOSING
+    assert engine.is_user_busy(1, 40) is True
+    assert engine.get_invite(1, 200).challenger_id == invite.challenger_id
+    assert choosing.phase is DuelPhase.FINISHED  # старые объекты не воскресают
 
 
 # ---------- Приглашения ----------
@@ -179,6 +222,22 @@ def test_cancel_duel_frees_players_without_rating(engine, repo, session):
     assert engine.is_user_busy(1, 10) is False
     assert engine.is_user_busy(1, 20) is False
     assert repo.get_top(1) == []
+
+
+async def test_interrupt_all_clears_sessions_and_invites(engine):
+    session = engine.start_duel(1, 100, 10, "Alice", 20, "Bob")
+    timer = asyncio.create_task(asyncio.sleep(60))
+    session.timeout_task = timer
+    invite = engine.create_invite(1, 200, 30, "Carol", 40, "Dave")
+
+    sessions, invites = engine.interrupt_all()
+    await asyncio.sleep(0)
+
+    assert sessions == [session] and invites == [invite]
+    assert session.phase is DuelPhase.FINISHED
+    assert timer.cancelled()
+    assert engine.sessions == {} and engine.invites == {}
+    assert engine.interrupt_all() == ([], [])
 
 
 def test_service_does_not_record_draw(engine, service, repo):

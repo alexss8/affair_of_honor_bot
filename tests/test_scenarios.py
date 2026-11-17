@@ -1,10 +1,13 @@
 import asyncio
 import datetime
 import logging
+import sqlite3
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Chat, ForumTopicCreated, Message, MessageEntity
 from helpers import (
     ACCEPT,
@@ -28,6 +31,7 @@ from helpers import (
 
 from bot.config import Config
 from bot.domain.engine import DuelEngine
+from bot.domain.models import DuelPhase, MoveKind, Zone
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.duel_cards import refresh_card
 from bot.telegram.handlers import router
@@ -384,3 +388,113 @@ async def test_timer_is_cancelled_when_duel_ends(bot_env):
 
     assert timer.cancelled() or timer.done()
     assert engine.get_session(CHAT_ID, 710) is None
+
+
+async def _start_duel_and_invite(dp, bot, engine) -> None:
+    """Бой @alice vs @bob в сообщении 720 (с таймером) и непринятый вызов Troll → Eve в 721."""
+    make_invite(engine, msg_id=720)
+    with patch.object(Message, "edit_text", new=AsyncMock()):
+        await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=720))
+    make_invite(engine, msg_id=721, challenger=(30, "Troll"), target=(40, "Eve"))
+
+
+def _restart(dp, engine, repo):
+    """Новый процесс бота над той же БД: свежий движок и Dispatcher."""
+    router._parent_router = None
+    new_engine = DuelEngine(logger=engine.logger, default_hp=engine.default_hp)
+    return build_dispatcher(dp["config"], repo, new_engine, engine.logger), new_engine
+
+
+async def test_shutdown_pauses_cards_and_startup_resumes_duel(bot_env):
+    dp, bot, engine, repo = bot_env
+    await _start_duel_and_invite(dp, bot, engine)
+    session = engine.get_session(CHAT_ID, 720)
+    with patch.object(Message, "edit_text", new=AsyncMock()):
+        await dp.feed_update(bot, make_callback_update(2, ALICE, ATTACK_TOP, msg_id=720))
+        await dp.feed_update(bot, make_callback_update(3, BOB, DEFEND_BOT, msg_id=720))
+    assert session.p2.hp == 1
+    remaining = session.deadline - time.time()
+
+    bot.reset_mock()
+    await dp.emit_shutdown(bot=bot, **dp.workflow_data)
+    edits = {c.kwargs["message_id"]: c.kwargs for c in bot.edit_message_text.await_args_list}
+    assert set(edits) == {720, 721}
+    assert all("⏸" in e["text"] and e["reply_markup"] is None for e in edits.values())
+    assert engine.sessions == {} and engine.invites == {}
+
+    await asyncio.sleep(0.3)  # бот «лежит»: время боя не должно идти
+    dp2, engine2 = _restart(dp, engine, repo)
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp2.emit_startup(bot=bot, **dp2.workflow_data)
+    cards = {c.kwargs["text"]: c.kwargs["reply_markup"] for c in mock_edit.await_args_list}
+    assert len(cards) == 2 and all(markup is not None for markup in cards.values())
+    assert any("ДУЭЛЬ" in text and "⏸" not in text for text in cards)
+
+    restored = engine2.get_session(CHAT_ID, 720)
+    assert restored.p2.hp == 1 and restored.attacker_id == BOB.id
+    assert restored.timeout_task is not None and not restored.timeout_task.done()
+    assert abs((restored.deadline - time.time()) - remaining) < 0.2
+    assert engine2.get_invite(CHAT_ID, 721) is not None
+
+    with patch.object(Message, "edit_text", new=AsyncMock()):
+        await dp2.feed_update(bot, make_callback_update(4, BOB, ATTACK_TOP, msg_id=720))
+        await dp2.feed_update(bot, make_callback_update(5, ALICE, DEFEND_TOP, msg_id=720))
+    assert restored.phase is DuelPhase.CHOOSING and restored.attacker_id == ALICE.id
+    cancel_timers(engine2)
+
+
+async def test_startup_resolves_round_that_was_rolling(bot_env):
+    dp, bot, engine, repo = bot_env
+    session = engine.start_duel(CHAT_ID, 730, 10, "@alice", 20, "@bob")
+    session.p2.hp = 1
+    engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
+    engine.choose(session, session.p2, MoveKind.DEFEND, Zone.BOT)
+    await dp.emit_shutdown(bot=bot, **dp.workflow_data)
+
+    dp2, engine2 = _restart(dp, engine, repo)
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp2.emit_startup(bot=bot, **dp2.workflow_data)
+    assert "ОКОНЧЕНА" in mock_edit.call_args.kwargs["text"]
+    assert engine2.sessions == {}
+    assert [s.wins for s in repo.get_top(CHAT_ID)] == [1, 0]
+
+
+async def test_startup_drops_gone_cards_and_expired_invites(bot_env):
+    dp, bot, engine, repo = bot_env
+    engine.start_duel(CHAT_ID, 740, 10, "@alice", 20, "@bob")
+    make_invite(engine, msg_id=741, challenger=(30, "Troll"), target=(40, "Eve"), now=time.time() - 10_000)
+    await dp.emit_shutdown(bot=bot, **dp.workflow_data)
+
+    dp2, engine2 = _restart(dp, engine, repo)
+
+    async def edit(text, **kwargs):
+        if "ДУЭЛЬ" in text:  # сообщение с боем удалили, пока бот лежал
+            raise TelegramBadRequest(method=AsyncMock(), message="Bad Request: message to edit not found")
+
+    with patch.object(Message, "edit_text", new=AsyncMock(side_effect=edit)) as mock_edit:
+        await dp2.emit_startup(bot=bot, **dp2.workflow_data)
+    assert engine2.sessions == {} and engine2.invites == {}
+    assert engine2.is_user_busy(CHAT_ID, 10) is False
+    assert any("истёк" in c.kwargs["text"] for c in mock_edit.await_args_list)
+
+
+async def test_shutdown_marks_cards_interrupted_when_snapshot_fails(bot_env):
+    """Если снимок не сохранился, бой восстановить нельзя: карточки помечаются прерванными (4.1)."""
+    dp, bot, engine, repo = bot_env
+    await _start_duel_and_invite(dp, bot, engine)
+    timer = engine.get_session(CHAT_ID, 720).timeout_task
+
+    bot.reset_mock()
+    with patch.object(SQLiteRepository, "save_suspended", side_effect=sqlite3.OperationalError("disk I/O error")):
+        await dp.emit_shutdown(bot=bot, **dp.workflow_data)
+    await asyncio.sleep(0)
+
+    edits = {c.kwargs["message_id"]: c.kwargs for c in bot.edit_message_text.await_args_list}
+    assert set(edits) == {720, 721}
+    assert "прерван перезапуском" in edits[720]["text"] and "рейтинг не изменён" in edits[720]["text"]
+    assert "@alice" in edits[720]["text"] and "@bob" in edits[720]["text"]
+    assert "перезапуск" in edits[721]["text"] and "/duel" in edits[721]["text"]
+    assert all(e["chat_id"] == CHAT_ID and e["reply_markup"] is None for e in edits.values())
+    assert engine.sessions == {} and engine.invites == {}
+    assert timer.cancelled()
+    assert repo.get_top(CHAT_ID) == []

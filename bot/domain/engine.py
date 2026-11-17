@@ -131,6 +131,35 @@ class DuelEngine:
                 return session
         return None
 
+    def interrupt_all(self) -> tuple[list[DuelSession], list[DuelInvite]]:
+        """Снимает все бои и приглашения без записи в рейтинг (остановка бота).
+
+        Returns:
+            Снятые сессии и приглашения — их сохраняют для восстановления и помечают карточки.
+        """
+        sessions = list(self.sessions.values())
+        invites = list(self.invites.values())
+        for session in sessions:
+            self._finish(session)
+        self.invites.clear()
+        if sessions or invites:
+            self.logger.info(f"Прервано при остановке: боёв {len(sessions)}, вызовов {len(invites)}")
+        return sessions, invites
+
+    def restore(self, sessions: list[DuelSession], invites: list[DuelInvite]) -> None:
+        """Возвращает в игру бои и вызовы, сохранённые при остановке бота.
+
+        Бой, где оба игрока уже выбрали ход, продолжается с фазы ROLLING — раунд нужно досчитать.
+        """
+        for session in sessions:
+            both_chose = session.p1.choice is not None and session.p2.choice is not None
+            session.phase = DuelPhase.ROLLING if both_chose else DuelPhase.CHOOSING
+            self.sessions[(session.chat_id, session.message_id)] = session
+        for invite in invites:
+            self.invites[(invite.chat_id, invite.message_id)] = invite
+        if sessions or invites:
+            self.logger.info(f"Восстановлено после рестарта: боёв {len(sessions)}, вызовов {len(invites)}")
+
     def _finish(self, session: DuelSession) -> None:
         session.phase = DuelPhase.FINISHED
         self.sessions.pop((session.chat_id, session.message_id), None)

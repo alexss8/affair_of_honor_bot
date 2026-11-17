@@ -1,6 +1,7 @@
 """Таймер дуэли: по истечении времени завершает бой по очкам или ничьей."""
 
 import asyncio
+import time
 
 from aiogram.types import Message
 
@@ -13,6 +14,7 @@ from bot.telegram.duel_cards import announce_outcome
 def start_duel_timer(
     session: DuelSession, message: Message, engine: DuelEngine, service: DuelService, timeout_sec: float
 ) -> None:
+    session.deadline = time.time() + timeout_sec
     session.timeout_task = asyncio.create_task(_duel_timeout_watcher(session, message, engine, service, timeout_sec))
 
 

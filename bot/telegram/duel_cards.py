@@ -1,13 +1,21 @@
 """Правки карточки боя. Все правки идут под session.card_lock, поэтому устаревшая правка,
 задержавшаяся в сети, не перезапишет более свежую карточку или итог боя."""
 
+import datetime
+
 from aiogram import Bot
-from aiogram.types import Message
+from aiogram.types import Chat, Message
 
 from bot.domain.models import DuelOutcome, DuelSession
 from bot.services.duel_service import DuelService
 from bot.telegram.safe_api import safe_edit_markup, safe_edit_text, safe_edit_text_by_id
 from bot.telegram.ui import keyboards, texts
+
+
+def card_message(bot: Bot, chat_id: int, message_id: int) -> Message:
+    """Message для правки карточки, когда известны только chat_id и message_id (после рестарта)."""
+    chat = Chat(id=chat_id, type="supergroup")
+    return Message(message_id=message_id, date=datetime.datetime.now(), chat=chat).as_(bot)
 
 
 async def refresh_card(message: Message, session: DuelSession, *, markup_only: bool = False) -> bool:
@@ -32,10 +40,7 @@ async def announce_outcome(message: Message, outcome: DuelOutcome, service: Duel
         await safe_edit_text(message, texts.render_outcome(finished, service.top_limit))
 
 
-async def show_cancelled(bot: Bot, session: DuelSession, canceler_name: str) -> None:
-    text = (
-        f"🚫 <b>ДУЭЛЬ ОТМЕНЕНА</b>\n\n<i>Бой между {session.p1.name} и {session.p2.name} "
-        f"аннулирован игроком {canceler_name} (без изменения рейтинга).</i>"
-    )
+async def show_final_notice(bot: Bot, session: DuelSession, text: str) -> None:
+    """Заменяет карточку снятого боя текстом без кнопок (отмена, пауза, прерывание)."""
     async with session.card_lock:
         await safe_edit_text_by_id(bot, session.chat_id, session.message_id, text)

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from bot.domain.models import Player, PlayerStats
+from bot.domain.models import DuelInvite, DuelSession, Player, PlayerStats
 from bot.storage.base import BaseRepository
 
 
@@ -44,6 +44,12 @@ class QueuedRepository:
 
     def get_top(self, chat_id: int, limit: int = 10) -> list[PlayerStats]:
         return self.repo.get_top(chat_id, limit)
+
+    def save_suspended(self, sessions: list[DuelSession], invites: list[DuelInvite], now: float) -> None:
+        self.repo.save_suspended(sessions, invites, now)
+
+    def pop_suspended(self, now: float) -> tuple[list[DuelSession], list[DuelInvite]]:
+        return self.repo.pop_suspended(now)
 
     def get_health_stats(self) -> dict:
         stats = self.repo.get_health_stats()

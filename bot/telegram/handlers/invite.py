@@ -120,6 +120,6 @@ async def _get_live_invite(cb: CallbackQuery, engine: DuelEngine) -> DuelInvite 
     if invite.is_expired(time.time()):
         engine.close_invite(invite)
         await safe_answer_callback(cb, "Вызов истёк.", show_alert=True)
-        await safe_edit_text(cb.message, "⌛ Вызов на дуэль истёк — соперник не ответил вовремя.")
+        await safe_edit_text(cb.message, texts.INVITE_EXPIRED)
         return None
     return invite
