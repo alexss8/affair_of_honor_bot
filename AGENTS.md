@@ -16,6 +16,7 @@
   - `bot/telegram/callbacks.py` — `CallbackData`-фабрики кнопок; не склеивайте `callback_data` строками вручную.
   - `bot/telegram/duel_cards.py` — все правки карточки боя идут через `refresh_card` / `announce_outcome` под `session.card_lock`, чтобы опоздавшая правка не перезаписала итог.
   - `bot/telegram/middlewares.py` — кэш участников чата; `bot/telegram/duel_timer.py` — таймаут дуэли.
+- **Настройки:** `bot/config.py` — единственное место чтения `.env`. Новая переменная: поле в `Config`, проверка в `load_config` (ошибки копятся в список и выводятся разом, `ConfigError` → выход с кодом 78), строка в `.env.example` и вопрос в `scripts/setup_env.py` (тест сверяет мастер с `.env.example`).
 - **Стиль кода:** ruff (`pyproject.toml`, длина строки 120). Перед коммитом: `ruff check .` и `ruff format .`.
 - **Безопасность Telegram API:** Никогда не вызывайте `message.answer`, `message.reply`, `message.edit_text`, `message.edit_reply_markup`, `bot.edit_message_text`, `bot.get_chat` или `cb.answer` напрямую в `bot/telegram/handlers/`. Всегда используйте безопасные обертки из `bot/telegram/safe_api.py` (`safe_answer`, `safe_reply`, `safe_edit_text`, `safe_edit_text_by_id`, `safe_edit_markup`, `safe_get_chat`, `safe_answer_callback`), которые перехватывают `TelegramBadRequest`, `TelegramRetryAfter` и сетевые сбои.
 - **Защита от XSS/HTML-инъекций:** Любые имена пользователей из Telegram перед вставкой в HTML-сообщения обязаны проходить через `texts.escape_nick()` / `texts.format_nick()` или `html.escape()`.
@@ -72,7 +73,8 @@ py -3.12 -m ruff format --check .
 - `test_tg_errors.py` — проверка контракта `safe_api.py` на все ошибки Telegram API и очистка зависших сессий при удалении сообщения админом.
 - `test_health.py` — проверка метрик БД и прав доступа к админ-команде `/status`; лог для теста пишется настоящим форматтером из `bot/logger.py`.
 - `helpers.py` — общие хелперы тестов: `build_dispatcher`, `make_invite`, апдейты, готовые `callback_data` (`ACCEPT`, `ATTACK_TOP`, ...).
-- `test_setup_env.py` — мастер `scripts/setup_env.py` записывает в `.env` все настройки.
+- `test_setup_env.py` — мастер `scripts/setup_env.py` записывает в `.env` все настройки (сверяется с `.env.example`).
+- `test_config.py` — проверка `.env` при старте: значения по умолчанию, ошибки по каждой переменной, все ошибки сразу без утечки токена, выход `python -m bot` с кодом 78.
 - `test_phrases.py` — валидация пула реплик в `bot/domain/phrases.py`.
 - `test_migrations.py` — миграции схемы: новая база, старая база без версии (данные сохраняются), повторный запуск, откат упавшей миграции, отказ при базе новее кода.
 - `test_backup.py` — скрипт `scripts/backup_db.py`: копия живой WAL-базы, ротация 7 копий, отказ при отсутствии базы, чтение `DB_PATH` из окружения.

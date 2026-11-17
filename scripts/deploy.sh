@@ -85,6 +85,8 @@ WorkingDirectory=$TARGET_DIR
 ExecStart=$TARGET_DIR/venv/bin/python -m bot
 Restart=always
 RestartSec=5
+# Ошибка в .env (код 78) — не перезапускать по кругу, нужно исправить настройки
+RestartPreventExitStatus=78
 
 [Install]
 WantedBy=multi-user.target

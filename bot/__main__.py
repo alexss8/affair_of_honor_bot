@@ -1,9 +1,10 @@
 import asyncio
+import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, BotCommandScopeAllGroupChats
 
-from bot.config import load_config
+from bot.config import EXIT_CONFIG_ERROR, Config, ConfigError, load_config
 from bot.domain.engine import DuelEngine
 from bot.logger import setup_logger
 from bot.services.duel_service import DuelService
@@ -12,8 +13,7 @@ from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.handlers import router
 
 
-async def main() -> None:
-    config = load_config()
+async def main(config: Config) -> None:
     logger = setup_logger(config.log_file)
 
     sqlite_repo = SQLiteRepository(config.db_path)
@@ -55,5 +55,14 @@ async def main() -> None:
         await bot.session.close()
 
 
+def run() -> None:
+    try:
+        config = load_config()
+    except ConfigError as e:
+        print(f"❌ {e}\nИсправьте .env (образец — .env.example) и запустите бота снова.", file=sys.stderr)
+        sys.exit(EXIT_CONFIG_ERROR)
+    asyncio.run(main(config))
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    run()

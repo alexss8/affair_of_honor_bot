@@ -29,6 +29,7 @@ def main() -> None:
     default_hp = prompt_value("Количество жизней у бойцов (DEFAULT_HP)", default="5")
     top_limit = prompt_value("Количество мест в топе (TOP_LIMIT)", default="10")
     duel_timeout = prompt_value("Длительность дуэли в секундах (DUEL_TIMEOUT_SEC)", default="300")
+    invite_ttl = prompt_value("Сколько секунд действует вызов на дуэль (INVITE_TTL_SEC)", default="300")
     db_path = prompt_value("Имя файла базы данных (DB_PATH)", default="duels.db")
     log_file = prompt_value("Имя файла логов (LOG_FILE)", default="bot.log")
 
@@ -38,6 +39,7 @@ def main() -> None:
         f"DEFAULT_HP={default_hp}\n"
         f"TOP_LIMIT={top_limit}\n"
         f"DUEL_TIMEOUT_SEC={duel_timeout}\n"
+        f"INVITE_TTL_SEC={invite_ttl}\n"
         f"DB_PATH={db_path}\n"
         f"LOG_FILE={log_file}\n"
     )
