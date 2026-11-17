@@ -39,6 +39,7 @@
    - Создаст виртуальное окружение `venv` и установит библиотеки из `requirements.txt`.
    - Запустит интерактивный мастер `scripts/setup_env.py` — **вставьте ваш `BOT_TOKEN`** (ввод скрыт на экране) и нажмите `Enter` для подтверждения стандартных настроек (`DEFAULT_HP=5`, `TOP_LIMIT=10` и т.д.).
    - Настроит и запустит системную службу `duelbot.service` для круглосуточной работы 24/7.
+   - Настроит ежедневный бэкап базы по cron (см. раздел 5).
 
 5. Удалите временную папку из `/root`:
    ```bash
@@ -91,10 +92,30 @@ su - botuser -c "cd ~/duel_bot && git pull && ./venv/bin/pip install -r requirem
 
 ## 5. Резервное копирование базы данных (Бэкап)
 
-База данных SQLite работает в режиме **WAL**, поэтому состоит из трех файлов (`duels.db`, `duels.db-wal`, `duels.db-shm`). Чтобы сделать безопасный снимок базы:
+`deploy.sh` настраивает **ежедневный бэкап** по cron (`/etc/cron.d/duelbot-backup`, в 04:30 по времени сервера): скрипт `scripts/backup_db.py` снимает копию базы, проверяет её целостность и хранит **7 последних** копий в `/home/botuser/backups` (`duels_ГГГГ-ММ-ДД.db`). Останавливать бота не нужно — используется онлайн-бэкап SQLite, который корректно учитывает журнал WAL (`duels.db-wal`).
 
-```bash
-systemctl stop duelbot
-cp /home/botuser/duel_bot/duels.db /root/duels_backup_\$(date +%F).db
-systemctl start duelbot
-```
+* **Список бэкапов:**
+  ```bash
+  ls -lh /home/botuser/backups
+  ```
+
+* **Сделать бэкап прямо сейчас:**
+  ```bash
+  su - botuser -c "cd ~/duel_bot && ./venv/bin/python scripts/backup_db.py --dir ~/backups"
+  ```
+
+* **Журнал ночных бэкапов:**
+  ```bash
+  journalctl -t duelbot-backup
+  ```
+
+* **Восстановить базу из бэкапа** (подставьте нужную дату):
+  ```bash
+  systemctl stop duelbot
+  rm -f /home/botuser/duel_bot/duels.db-wal /home/botuser/duel_bot/duels.db-shm
+  cp /home/botuser/backups/duels_2026-11-18.db /home/botuser/duel_bot/duels.db
+  chown botuser:botuser /home/botuser/duel_bot/duels.db && chmod 600 /home/botuser/duel_bot/duels.db
+  systemctl start duelbot
+  ```
+
+> Бэкапы лежат на том же сервере: от ошибок и порчи базы они спасают, от потери самого сервера — нет. Время от времени скачивайте свежую копию к себе: `scp root@ВАШ_IP_СЕРВЕРА:/home/botuser/backups/duels_*.db .`
