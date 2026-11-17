@@ -2,6 +2,7 @@ import os
 import sqlite3
 
 from bot.domain.models import DuelInvite, DuelSession, Player, PlayerStats, Zone
+from bot.storage.migrations import migrate
 
 
 class SQLiteRepository:
@@ -14,44 +15,15 @@ class SQLiteRepository:
             self._conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
         return self._conn
 
-    def init(self) -> None:
+    def init(self) -> int:
+        """Настраивает соединение и применяет миграции схемы. Возвращает версию схемы."""
         conn = self._get_conn()
-        with conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA synchronous=NORMAL;")
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS stats ("
-                "chat_id INTEGER, user_id INTEGER, nickname TEXT, "
-                "wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, "
-                "PRIMARY KEY (chat_id, user_id))"
-            )
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS duels_history ("
-                "duel_id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, winner_id INTEGER, loser_id INTEGER, "
-                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
-            )
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS chat_users ("
-                "chat_id INTEGER, user_id INTEGER, username TEXT, first_name TEXT, "
-                "PRIMARY KEY (chat_id, user_id))"
-            )
-            # Снимок боёв и вызовов на время рестарта: пишется при остановке, читается и очищается при старте.
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS suspended_duels ("
-                "chat_id INTEGER, message_id INTEGER, "
-                "p1_id INTEGER, p1_name TEXT, p1_hp INTEGER, p1_choice TEXT, "
-                "p2_id INTEGER, p2_name TEXT, p2_hp INTEGER, p2_choice TEXT, "
-                "attacker_id INTEGER, max_hp INTEGER, last_log TEXT, remaining_sec REAL, "
-                "PRIMARY KEY (chat_id, message_id))"
-            )
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS suspended_invites ("
-                "chat_id INTEGER, message_id INTEGER, challenger_id INTEGER, challenger_name TEXT, "
-                "target_id INTEGER, target_name TEXT, remaining_sec REAL, "
-                "PRIMARY KEY (chat_id, message_id))"
-            )
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        version = migrate(conn)
         if os.path.exists(self.db_path):
             os.chmod(self.db_path, 0o600)
+        return version
 
     def save_user(self, chat_id: int, user_id: int, username: str | None, first_name: str) -> None:
         self.save_users_batch([(chat_id, user_id, username, first_name)])

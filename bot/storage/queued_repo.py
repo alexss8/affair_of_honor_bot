@@ -14,8 +14,8 @@ class QueuedRepository:
         self.queue: asyncio.Queue = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
 
-    def init(self) -> None:
-        self.repo.init()
+    def init(self) -> int:
+        return self.repo.init()
 
     def start_worker(self) -> None:
         if self._worker_task is None or self._worker_task.done():

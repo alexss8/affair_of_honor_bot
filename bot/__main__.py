@@ -18,7 +18,7 @@ async def main() -> None:
 
     sqlite_repo = SQLiteRepository(config.db_path)
     repo = QueuedRepository(target_repo=sqlite_repo, logger=logger)
-    repo.init()
+    schema_version = repo.init()
     repo.start_worker()
 
     engine = DuelEngine(logger=logger, default_hp=config.default_hp, invite_ttl_sec=config.invite_ttl_sec)
@@ -45,7 +45,9 @@ async def main() -> None:
         )
 
         await bot.delete_webhook(drop_pending_updates=True)
-        logger.info(f"Бот запущен! Настройки: {config.default_hp} HP, топ-{config.top_limit}.")
+        logger.info(
+            f"Бот запущен! Настройки: {config.default_hp} HP, топ-{config.top_limit}. Схема БД: v{schema_version}."
+        )
         await dp.start_polling(bot)
     finally:
         logger.info("Остановка бота, дописываем фоновую очередь...")

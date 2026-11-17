@@ -9,7 +9,7 @@
 - **KISS & Zero-Infrastructure:** Не добавляйте внешние брокеры и базы (Redis, RabbitMQ, PostgreSQL, Docker) без прямого запроса. Проект рассчитан на легкий запуск на одном VPS с SQLite.
 - **SOLID & Separation of Concerns** (код живёт в пакете `bot/`, запуск: `python -m bot`):
   - `bot/domain/` (`models`, `engine`, `phrases`) — чистая игровая логика: приглашения (`DuelInvite`, со сроком жизни), сессии с фазами (`DuelPhase`: `CHOOSING → ROLLING → FINISHED`) и итоги (`DuelOutcome`). Не импортируйте сюда `aiogram` и репозиторий. Все переходы состояния в `DuelEngine` — синхронные методы без `await`, поэтому атомарны; новые переходы пишите так же.
-  - `bot/storage/` (`base` — Protocol репозитория, `sqlite_repo`, `queued_repo`) — вся работа с SQLite.
+  - `bot/storage/` (`base` — Protocol репозитория, `sqlite_repo`, `queued_repo`, `migrations`) — вся работа с SQLite.
   - `bot/services/` — логика без Telegram: `duel_service` — единственное место завершения боя (запись в БД, лог, топ для итога); `system_metrics` для `/status`.
   - `bot/telegram/ui/` (`texts`, `keyboards`) — только генерация HTML-текстов и Inline-клавиатур. Никаких обращений к БД или API Telegram.
   - `bot/telegram/handlers/` — только маршрутизация команд/коллбэков, валидация прав игрока и склейка `engine`, `repo` и `ui`. По модулю на тему: `common` (help/top/приветствие), `invite` (вызов и ответ на него), `battle` (ходы, сдача, `/cancel`), `admin` (`/status`), `errors`, `lifecycle` (при остановке сохраняет активные бои и вызовы в БД и ставит карточки на паузу, при старте восстанавливает их; если снимок не сохранился — помечает карточки прерванными), `fallback` (устаревшие кнопки, подключается последним). Корневой `router` в `handlers/__init__.py` подключает middleware и все роутеры.
@@ -27,6 +27,7 @@
 - **База данных (`SQLiteRepository`):**
   - Работает с постоянным соединением (`self._conn`, `check_same_thread=False`) в режиме `PRAGMA journal_mode=WAL` и `PRAGMA synchronous=NORMAL`.
   - Все SQL-запросы строго параметризованы (`?`).
+  - Схема меняется только миграциями в `bot/storage/migrations.py` (версия — `PRAGMA user_version`, применяются в `init()` при старте). Новая миграция — новая функция в конце `MIGRATIONS`; выпущенные миграции не правим. Каждая миграция идёт в своей транзакции.
 - **Фоновая очередь (`QueuedRepository`):**
   - Оборачивает `SQLiteRepository`. Кэширование участников чата (`save_user`) пишется асинхронно через `asyncio.Queue` пачками (батчинг до 200 записей).
   - Запись результатов дуэли (`record_duel`) выполняется синхронно, чтобы сразу вернуть актуальный `duel_id` и обновленный `/top`.
@@ -73,6 +74,7 @@ py -3.12 -m ruff format --check .
 - `helpers.py` — общие хелперы тестов: `build_dispatcher`, `make_invite`, апдейты, готовые `callback_data` (`ACCEPT`, `ATTACK_TOP`, ...).
 - `test_setup_env.py` — мастер `scripts/setup_env.py` записывает в `.env` все настройки.
 - `test_phrases.py` — валидация пула реплик в `bot/domain/phrases.py`.
+- `test_migrations.py` — миграции схемы: новая база, старая база без версии (данные сохраняются), повторный запуск, откат упавшей миграции, отказ при базе новее кода.
 - `test_load.py` — нагрузочный тест на 500 одновременных дуэлей с моком `asyncio.sleep`.
 
 **Важно при написании новых тестов:** В `aiogram 3` глобальный объект `router` хранит ссылку `_parent_router`. В фикстурах тестов после `yield` обязательно сбрасывайте привязку (`router._parent_router = None`).
