@@ -3,7 +3,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from aiogram import Bot, Dispatcher
+from aiogram import Bot
 from aiogram.exceptions import (
     TelegramBadRequest,
     TelegramForbiddenError,
@@ -14,6 +14,7 @@ from aiogram.exceptions import (
 )
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
 from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
+from helpers import ATTACK_TOP, build_dispatcher
 
 from bot.config import Config
 from bot.domain.engine import DuelEngine
@@ -28,17 +29,12 @@ def env(tmp_path):
     repo.init()
     logger = logging.getLogger("err_test")
     config = Config(bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", default_hp=5)
-    engine = DuelEngine(repo=repo, logger=logger, default_hp=5)
+    engine = DuelEngine(logger=logger, default_hp=5)
 
     bot = AsyncMock(spec=Bot)
     bot.id = 999
 
-    dp = Dispatcher()
-    dp["config"] = config
-    dp["repo"] = repo
-    dp["engine"] = engine
-    dp["logger"] = logger
-    dp.include_router(router)
+    dp = build_dispatcher(config, repo, engine, logger)
 
     yield dp, bot, engine, repo
     router._parent_router = None
@@ -105,7 +101,7 @@ async def test_edit_text_error_contract_and_session_lifecycle(env, exc, expected
 
     chat = Chat(id=-1001, type="supergroup", title="Test")
     battle_msg = Message(message_id=777, date=datetime.datetime.now(), chat=chat, text="Battle")
-    cb = CallbackQuery(id="1", from_user=alice, chat_instance="123", message=battle_msg, data="act_top")
+    cb = CallbackQuery(id="1", from_user=alice, chat_instance="123", message=battle_msg, data=ATTACK_TOP)
     upd = Update(update_id=1, callback_query=cb)
 
     with patch.object(Message, "edit_text", new=AsyncMock(side_effect=exc)):

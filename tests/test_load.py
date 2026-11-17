@@ -4,8 +4,9 @@ import logging
 import time
 from unittest.mock import AsyncMock, patch
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
+from helpers import DEFEND_BOT, build_dispatcher
 
 from bot.config import Config
 from bot.domain.engine import DuelEngine
@@ -22,16 +23,11 @@ async def test_500_concurrent_handles(tmp_path):
     repo.start_worker()
 
     config = Config(bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", default_hp=1, top_limit=500)
-    engine = DuelEngine(repo=repo, logger=logger, default_hp=1)
+    engine = DuelEngine(logger=logger, default_hp=1)
 
     bot = AsyncMock(spec=Bot)
     bot.id = 999
-    dp = Dispatcher()
-    dp["config"] = config
-    dp["repo"] = repo
-    dp["engine"] = engine
-    dp["logger"] = logger
-    dp.include_router(router)
+    dp = build_dispatcher(config, repo, engine, logger)
 
     try:
         chat = Chat(id=-100999, type="supergroup", title="Big Chat 500")
@@ -48,7 +44,7 @@ async def test_500_concurrent_handles(tmp_path):
 
             defender_user = User(id=p2_id, is_bot=False, first_name=f"Defender_{i}")
             msg = Message(message_id=msg_id, date=datetime.datetime.now(), chat=chat, text="Battle")
-            cb = CallbackQuery(id=f"cb_{i}", from_user=defender_user, chat_instance="123", message=msg, data="def_bot")
+            cb = CallbackQuery(id=f"cb_{i}", from_user=defender_user, chat_instance="123", message=msg, data=DEFEND_BOT)
             updates.append(Update(update_id=i + 1, callback_query=cb))
 
         start_time = time.perf_counter()

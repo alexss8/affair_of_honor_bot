@@ -12,7 +12,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.types import CallbackQuery, Chat, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 logger = logging.getLogger("duel_bot")
 
@@ -131,22 +131,6 @@ async def safe_answer(
             logger.warning(f"Не удалось отправить сообщение: {e}")
             return None
     return None
-
-
-async def safe_get_chat(bot: Bot, chat_id: int) -> Chat | None:
-    """Возвращает Chat или None, если Telegram его не отдал (например, "chat not found")."""
-    try:
-        return await bot.get_chat(chat_id)
-    except (
-        TelegramBadRequest,
-        TelegramNotFound,
-        TelegramForbiddenError,
-        TelegramNetworkError,
-        TelegramServerError,
-        TelegramRetryAfter,
-    ) as e:
-        logger.warning(f"Не удалось получить чат {chat_id}: {e}")
-        return None
 
 
 async def safe_reply(message: Message, text: str) -> None:

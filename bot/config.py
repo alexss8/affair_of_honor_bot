@@ -11,6 +11,7 @@ class Config:
     default_hp: int = 5
     top_limit: int = 10
     duel_timeout_sec: int = 300
+    invite_ttl_sec: int = 300
     db_path: str = "duels.db"
     log_file: str = "bot.log"
 
@@ -30,6 +31,7 @@ def load_config() -> Config:
         default_hp=int(os.getenv("DEFAULT_HP", 5)),
         top_limit=int(os.getenv("TOP_LIMIT", 10)),
         duel_timeout_sec=int(os.getenv("DUEL_TIMEOUT_SEC", 300)),
+        invite_ttl_sec=int(os.getenv("INVITE_TTL_SEC", 300)),
         db_path=os.getenv("DB_PATH", "duels.db"),
         log_file=os.getenv("LOG_FILE", "bot.log"),
     )

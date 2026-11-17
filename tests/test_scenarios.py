@@ -4,16 +4,33 @@ import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from aiogram import Bot, Dispatcher
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import GetChat
-from aiogram.types import CallbackQuery, Chat, ForumTopicCreated, Message, MessageEntity, Update, User
+from aiogram import Bot
+from aiogram.types import Chat, ForumTopicCreated, Message, MessageEntity
+from helpers import (
+    ACCEPT,
+    ALICE,
+    ATTACK_TOP,
+    BOB,
+    CHAT_ID,
+    DECLINE,
+    DEFEND_BOT,
+    DEFEND_TOP,
+    REVOKE,
+    SURRENDER,
+    TOKEN,
+    TROLL,
+    build_dispatcher,
+    cancel_timers,
+    make_callback_update,
+    make_invite,
+    make_msg_update,
+)
 
 from bot.config import Config
 from bot.domain.engine import DuelEngine
 from bot.storage.sqlite_repo import SQLiteRepository
+from bot.telegram.duel_cards import refresh_card
 from bot.telegram.handlers import router
-from bot.telegram.ui import texts
 
 
 @pytest.fixture
@@ -21,87 +38,80 @@ def bot_env(tmp_path):
     repo = SQLiteRepository(str(tmp_path / "scenario.db"))
     repo.init()
     logger = logging.getLogger("scenario")
-    config = Config(bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", default_hp=2)
-    engine = DuelEngine(repo=repo, logger=logger, default_hp=config.default_hp)
+    config = Config(bot_token=TOKEN, default_hp=2)
+    engine = DuelEngine(logger=logger, default_hp=config.default_hp)
 
     bot = AsyncMock(spec=Bot)
     bot.id = 999
-    bot.get_chat.return_value = Chat(id=10, type="private", first_name="Alice", username="alice")
-
-    dp = Dispatcher()
-    dp["config"] = config
-    dp["repo"] = repo
-    dp["engine"] = engine
-    dp["logger"] = logger
-    dp.include_router(router)
+    dp = build_dispatcher(config, repo, engine, logger)
 
     yield dp, bot, engine, repo
-    for session in list(engine.sessions.values()):
-        if session.timeout_task and not session.timeout_task.done():
-            session.timeout_task.cancel()
+    cancel_timers(engine)
     router._parent_router = None
 
 
-def make_callback_update(update_id: int, user: User, data: str, msg_id: int = 500, chat_id: int = -1001) -> Update:
-    chat = Chat(id=chat_id, type="supergroup", title="Test Group")
-    msg = Message(message_id=msg_id, date=datetime.datetime.now(), chat=chat, text="Battle")
-    cb = CallbackQuery(id=str(update_id), from_user=user, chat_instance="123", message=msg, data=data)
-    return Update(update_id=update_id, callback_query=cb)
-
-
-def make_msg_update(
-    update_id: int,
-    user: User,
-    text: str,
-    entities: list[MessageEntity] | None = None,
-    reply_to: Message | None = None,
-    chat_id: int = -1001,
-) -> Update:
-    chat = Chat(id=chat_id, type="supergroup", title="Test Group")
-    msg = Message(
-        message_id=100 + update_id,
-        date=datetime.datetime.now(),
-        chat=chat,
-        from_user=user,
-        text=text,
-        entities=entities,
-        reply_to_message=reply_to,
-    )
-    return Update(update_id=update_id, message=msg)
+def _timeout_config(seconds: float) -> Config:
+    return Config(bot_token=TOKEN, default_hp=3, duel_timeout_sec=seconds)
 
 
 async def test_revoke_invite_scenario(bot_env):
     dp, bot, engine, _ = bot_env
-    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
-    stranger = User(id=30, is_bot=False, first_name="Troll")
+    make_invite(engine)
 
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
-        await dp.feed_update(bot, make_callback_update(1, stranger, "revoke_10_20"))
-        await dp.feed_update(bot, make_callback_update(2, bob, "revoke_10_20"))
+        await dp.feed_update(bot, make_callback_update(1, TROLL, REVOKE))
+        await dp.feed_update(bot, make_callback_update(2, BOB, REVOKE))
         mock_edit.assert_not_awaited()
 
-        await dp.feed_update(bot, make_callback_update(3, alice, "revoke_10_20"))
+        await dp.feed_update(bot, make_callback_update(3, ALICE, REVOKE))
         mock_edit.assert_awaited_once()
         assert "отозвал свой вызов" in mock_edit.call_args.kwargs["text"]
-        assert engine.get_session(-1001, 500) is None
+    assert engine.get_invite(CHAT_ID, 500) is None
+    assert engine.get_session(CHAT_ID, 500) is None
+
+
+async def test_decline_invite_only_by_target(bot_env):
+    dp, bot, engine, _ = bot_env
+    make_invite(engine)
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp.feed_update(bot, make_callback_update(1, ALICE, DECLINE))
+        mock_edit.assert_not_awaited()
+        await dp.feed_update(bot, make_callback_update(2, BOB, DECLINE))
+        assert "отклонен" in mock_edit.call_args.kwargs["text"]
+    assert engine.get_invite(CHAT_ID, 500) is None
+
+
+async def test_duel_command_registers_invite(bot_env):
+    dp, bot, engine, _ = bot_env
+    sent = Message(message_id=777, date=datetime.datetime.now(), chat=Chat(id=CHAT_ID, type="supergroup"), text="x")
+    entities = [MessageEntity(type="bot_command", offset=0, length=5)]
+    reply_to = Message(
+        message_id=1, date=datetime.datetime.now(), chat=Chat(id=CHAT_ID, type="supergroup"), from_user=BOB, text="hi"
+    )
+
+    with patch.object(Message, "answer", new=AsyncMock(return_value=sent)):
+        await dp.feed_update(bot, make_msg_update(1, ALICE, "/duel", entities=entities, reply_to=reply_to))
+
+    invite = engine.get_invite(CHAT_ID, 777)
+    assert invite is not None
+    assert (invite.challenger_id, invite.challenger_name) == (10, "@alice")
+    assert (invite.target_id, invite.target_name) == (20, "@bob")
 
 
 async def test_challenge_by_username_and_text_mention(bot_env):
     dp, bot, _, repo = bot_env
-    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
-    hidden_user = User(id=30, is_bot=False, first_name="Скрытный Гном")
+    hidden_user = ALICE.model_copy(update={"id": 30, "first_name": "Скрытный Гном", "username": None})
 
-    await dp.feed_update(bot, make_msg_update(1, bob, "Всем привет в таверне!"))
-    assert repo.get_user_by_username(-1001, "@bob") == (20, "@bob")
+    await dp.feed_update(bot, make_msg_update(1, BOB, "Всем привет в таверне!"))
+    assert repo.get_user_by_username(CHAT_ID, "@bob") == (20, "@bob")
 
     bot.reset_mock()
     entities_mention = [
         MessageEntity(type="bot_command", offset=0, length=5),
         MessageEntity(type="mention", offset=6, length=4),
     ]
-    await dp.feed_update(bot, make_msg_update(2, alice, "/duel @bob", entities=entities_mention))
+    await dp.feed_update(bot, make_msg_update(2, ALICE, "/duel @bob", entities=entities_mention))
     bot.assert_called()
 
     bot.reset_mock()
@@ -109,67 +119,63 @@ async def test_challenge_by_username_and_text_mention(bot_env):
         MessageEntity(type="bot_command", offset=0, length=5),
         MessageEntity(type="text_mention", offset=6, length=13, user=hidden_user),
     ]
-    await dp.feed_update(bot, make_msg_update(3, alice, "/duel Скрытный Гном", entities=entities_text_mention))
+    await dp.feed_update(bot, make_msg_update(3, ALICE, "/duel Скрытный Гном", entities=entities_text_mention))
     bot.assert_called()
 
     bot.reset_mock()
-    chat = Chat(id=-1001, type="supergroup", title="Test Group")
+    chat = Chat(id=CHAT_ID, type="supergroup", title="Test Group")
     topic_header = Message(
         message_id=1,
         date=datetime.datetime.now(),
         chat=chat,
-        from_user=bob,
+        from_user=BOB,
         forum_topic_created=ForumTopicCreated(name="Ристалище", icon_color=7322096),
     )
     entities_cmd = [MessageEntity(type="bot_command", offset=0, length=5)]
-    await dp.feed_update(bot, make_msg_update(4, alice, "/duel", entities=entities_cmd, reply_to=topic_header))
+    await dp.feed_update(bot, make_msg_update(4, ALICE, "/duel", entities=entities_cmd, reply_to=topic_header))
     assert "Укажи соперника" in str(bot.call_args)
 
 
 async def test_cancel_command_scenario(bot_env):
     dp, bot, engine, repo = bot_env
-    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
-    stranger = User(id=30, is_bot=False, first_name="Troll")
-
     cmd_cancel_ent = [MessageEntity(type="bot_command", offset=0, length=7)]
 
     bot.reset_mock()
-    await dp.feed_update(bot, make_msg_update(1, alice, "/cancel", entities=cmd_cancel_ent))
+    await dp.feed_update(bot, make_msg_update(1, ALICE, "/cancel", entities=cmd_cancel_ent))
     assert "нет активных дуэлей" in str(bot.call_args)
 
-    engine.start_duel(chat_id=-1001, msg_id=500, p1_id=10, p1_name="@alice", p2_id=20, p2_name="@bob")
+    engine.start_duel(chat_id=CHAT_ID, msg_id=500, p1_id=10, p1_name="@alice", p2_id=20, p2_name="@bob")
 
     bot.reset_mock()
-    await dp.feed_update(bot, make_msg_update(2, stranger, "/cancel", entities=cmd_cancel_ent))
-    assert engine.get_session(-1001, 500) is not None
+    await dp.feed_update(bot, make_msg_update(2, TROLL, "/cancel", entities=cmd_cancel_ent))
+    assert engine.get_session(CHAT_ID, 500) is not None
 
     bot.reset_mock()
-    await dp.feed_update(bot, make_msg_update(3, alice, "/cancel", entities=cmd_cancel_ent))
-    assert engine.get_session(-1001, 500) is None
-    assert engine.is_user_busy(-1001, 10) is False
-    assert engine.is_user_busy(-1001, 20) is False
-    assert repo.get_top(-1001) == []
+    await dp.feed_update(bot, make_msg_update(3, ALICE, "/cancel", entities=cmd_cancel_ent))
+    assert engine.get_session(CHAT_ID, 500) is None
+    assert engine.is_user_busy(CHAT_ID, 10) is False
+    assert engine.is_user_busy(CHAT_ID, 20) is False
+    assert repo.get_top(CHAT_ID) == []
 
 
 async def test_full_duel_and_surrender_scenario(bot_env):
     dp, bot, engine, repo = bot_env
-    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
-    stranger = User(id=30, is_bot=False, first_name="Troll")
+    make_invite(engine)
 
-    await dp.feed_update(bot, make_callback_update(1, stranger, "accept_10_20"))
-    assert engine.get_session(-1001, 500) is None
+    await dp.feed_update(bot, make_callback_update(1, TROLL, ACCEPT))
+    assert engine.get_session(CHAT_ID, 500) is None
 
-    await dp.feed_update(bot, make_callback_update(2, bob, "accept_10_20"))
-    session = engine.get_session(-1001, 500)
+    await dp.feed_update(bot, make_callback_update(2, BOB, ACCEPT))
+    session = engine.get_session(CHAT_ID, 500)
     assert session is not None
     assert session.p1.hp == 2
+    assert session.p1.name == "@alice"
 
-    await dp.feed_update(bot, make_callback_update(3, bob, "act_top"))
+    await dp.feed_update(bot, make_callback_update(3, BOB, ATTACK_TOP))
     assert session.p2.choice is None
 
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
-        await dp.feed_update(bot, make_callback_update(4, alice, "act_top"))
+        await dp.feed_update(bot, make_callback_update(4, ALICE, ATTACK_TOP))
         last_markup = mock_edit.call_args.kwargs["reply_markup"]
         footer_btn = last_markup.inline_keyboard[-1][0]
         assert "⏳ Ждем @bob" in footer_btn.text
@@ -178,11 +184,9 @@ async def test_full_duel_and_surrender_scenario(bot_env):
         assert "🟢 Защищается: <b>@bob</b>" in text_after_alice
         assert "Бой начался! Выбирайте действия." in text_after_alice
 
-        await dp.feed_update(bot, make_callback_update(5, bob, "def_bot"))
+        await dp.feed_update(bot, make_callback_update(5, BOB, DEFEND_BOT))
         assert session.p2.hp == 1
-        all_texts = [
-            call.kwargs.get("text") or (call.args[0] if call.args else "") for call in mock_edit.call_args_list
-        ]
+        all_texts = [call.kwargs.get("text") for call in mock_edit.call_args_list]
         all_footers = [
             call.kwargs["reply_markup"].inline_keyboard[-1][0].text
             for call in mock_edit.call_args_list
@@ -194,45 +198,44 @@ async def test_full_duel_and_surrender_scenario(bot_env):
         assert "🔴 Атакует: <b>@bob</b>" in round_result_text
         assert "🟢 Защищается: <b>@alice</b>" in round_result_text
 
-        await dp.feed_update(bot, make_callback_update(6, alice, "def_top"))
+        await dp.feed_update(bot, make_callback_update(6, ALICE, DEFEND_TOP))
         text_round2_alice = mock_edit.call_args.kwargs["text"]
         assert session.last_log in text_round2_alice
         assert "✅ Защищается: <b>@alice</b>" in text_round2_alice
 
-    await dp.feed_update(bot, make_callback_update(7, bob, "surrender"))
+    await dp.feed_update(bot, make_callback_update(7, BOB, SURRENDER))
     assert session.surrender_confirm_id == 20
-    assert engine.get_session(-1001, 500) is not None
+    assert engine.get_session(CHAT_ID, 500) is not None
 
-    await dp.feed_update(bot, make_callback_update(8, bob, "surrender"))
-    assert engine.get_session(-1001, 500) is None
+    await dp.feed_update(bot, make_callback_update(8, BOB, SURRENDER))
+    assert engine.get_session(CHAT_ID, 500) is None
 
-    top = repo.get_top(-1001)
+    top = repo.get_top(CHAT_ID)
     assert top[0].nickname == "@alice" and top[0].wins == 1
     assert top[1].nickname == "@bob" and top[1].losses == 1
 
 
 async def test_duel_timeout_victory_by_points(bot_env):
     dp, bot, engine, repo = bot_env
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
-
-    dp["config"] = Config(bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", default_hp=3, duel_timeout_sec=0.05)
+    dp["config"] = _timeout_config(0.05)
+    make_invite(engine, msg_id=601)
 
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
-        await dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=601))
-        session = engine.get_session(-1001, 601)
+        await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=601))
+        session = engine.get_session(CHAT_ID, 601)
         assert session is not None
         session.p2.hp = 1
 
         await asyncio.sleep(0.1)
 
-        assert engine.get_session(-1001, 601) is None
-        assert engine.is_user_busy(-1001, 10) is False
-        assert engine.is_user_busy(-1001, 20) is False
+        assert engine.get_session(CHAT_ID, 601) is None
+        assert engine.is_user_busy(CHAT_ID, 10) is False
+        assert engine.is_user_busy(CHAT_ID, 20) is False
         last_text = mock_edit.call_args.kwargs["text"]
         assert "Время дуэли вышло!" in last_text
         assert "Победитель: <b>@alice</b>" in last_text
 
-    top = repo.get_top(-1001)
+    top = repo.get_top(CHAT_ID)
     assert len(top) == 2
     assert top[0].nickname == "@alice" and top[0].wins == 1
     assert top[1].nickname == "@bob" and top[1].losses == 1
@@ -240,81 +243,144 @@ async def test_duel_timeout_victory_by_points(bot_env):
 
 async def test_duel_timeout_draw_when_hp_equal(bot_env):
     dp, bot, engine, repo = bot_env
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
-
-    dp["config"] = Config(bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", default_hp=3, duel_timeout_sec=0.05)
+    dp["config"] = _timeout_config(0.05)
+    make_invite(engine, msg_id=602)
 
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
-        await dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=602))
-        assert engine.get_session(-1001, 602) is not None
+        await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=602))
+        assert engine.get_session(CHAT_ID, 602) is not None
 
         await asyncio.sleep(0.1)
 
-        assert engine.get_session(-1001, 602) is None
+        assert engine.get_session(CHAT_ID, 602) is None
         last_text = mock_edit.call_args.kwargs["text"]
         assert "ОКОНЧЕНА ВНИЧЬЮ" in last_text
         assert "Рейтинг игроков не изменился" in last_text
 
-    assert repo.get_top(-1001) == []
-
-
-def _chat_not_found() -> TelegramBadRequest:
-    return TelegramBadRequest(method=GetChat(chat_id=10), message="Bad Request: chat not found")
+    assert repo.get_top(CHAT_ID) == []
 
 
 async def test_double_accept_click_starts_only_one_duel(bot_env):
     dp, bot, engine, _ = bot_env
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
-
-    async def slow_get_chat(*args, **kwargs):
-        await asyncio.sleep(0.05)
-        return Chat(id=10, type="private", first_name="Alice", username="alice")
-
-    bot.get_chat.side_effect = slow_get_chat
+    make_invite(engine, msg_id=700)
 
     with (
         patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit,
         patch.object(engine, "start_duel", wraps=engine.start_duel) as spy_start,
     ):
         await asyncio.gather(
-            dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=700)),
-            dp.feed_update(bot, make_callback_update(2, bob, "accept_10_20", msg_id=700)),
+            dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=700)),
+            dp.feed_update(bot, make_callback_update(2, BOB, ACCEPT, msg_id=700)),
         )
 
         assert spy_start.call_count == 1
-        assert engine.get_session(-1001, 700) is not None
+        assert engine.get_session(CHAT_ID, 700) is not None
         edited_texts = [call.kwargs["text"] for call in mock_edit.call_args_list]
         assert not any("уже вступил в другой бой" in t for t in edited_texts)
     assert "Дуэль уже началась" in str(bot.call_args_list)
 
 
-async def test_accept_takes_initiator_nick_from_cache(bot_env):
+async def test_accept_uses_names_from_invite_without_get_chat(bot_env):
     dp, bot, engine, _ = bot_env
-    alice = User(id=10, is_bot=False, first_name="Alice", username="alice")
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
-    bot.get_chat.side_effect = _chat_not_found()
-
-    # Alice пишет в чат -> попадает в кэш участников
-    await dp.feed_update(bot, make_msg_update(1, alice, "Вызываю!"))
+    make_invite(engine, msg_id=701, challenger=(10, "Сэр Ланселот"))
 
     with patch.object(Message, "edit_text", new=AsyncMock()):
-        await dp.feed_update(bot, make_callback_update(2, bob, "accept_10_20", msg_id=701))
+        await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=701))
 
-    session = engine.get_session(-1001, 701)
+    session = engine.get_session(CHAT_ID, 701)
     assert session is not None
-    assert session.p1.name == "@alice"
-    bot.get_chat.assert_not_awaited()
+    assert session.p1.name == "Сэр Ланселот"
+    bot.get_chat.assert_not_called()
 
 
-async def test_accept_works_when_initiator_unknown_and_get_chat_fails(bot_env):
+async def test_accept_unknown_invite_is_rejected(bot_env):
+    """Приглашения нет (например, бот перезапускался) — дуэль не начинается."""
     dp, bot, engine, _ = bot_env
-    bob = User(id=20, is_bot=False, first_name="Bob", username="bob")
-    bot.get_chat.side_effect = _chat_not_found()
+
+    await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=702))
+
+    assert engine.get_session(CHAT_ID, 702) is None
+    assert "больше не действителен" in str(bot.call_args_list)
+
+
+async def test_expired_invite_cannot_be_accepted(bot_env):
+    dp, bot, engine, _ = bot_env
+    engine.invite_ttl_sec = 60
+    make_invite(engine, msg_id=703, now=0)  # истёк давным-давно
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=703))
+        assert "истёк" in mock_edit.call_args.kwargs["text"]
+
+    assert engine.get_session(CHAT_ID, 703) is None
+    assert engine.get_invite(CHAT_ID, 703) is None
+
+
+async def test_accept_when_player_already_busy(bot_env):
+    dp, bot, engine, _ = bot_env
+    engine.start_duel(CHAT_ID, 900, 10, "@alice", 30, "Troll")
+    make_invite(engine, msg_id=704)
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=704))
+        assert "уже вступил в другой бой" in mock_edit.call_args.kwargs["text"]
+
+    assert engine.get_session(CHAT_ID, 704) is None
+    assert engine.get_invite(CHAT_ID, 704) is None
+
+
+async def test_stale_old_format_button_is_answered(bot_env):
+    dp, bot, engine, _ = bot_env
+
+    await dp.feed_update(bot, make_callback_update(1, BOB, "accept_10_20"))
+
+    assert "кнопка устарела" in str(bot.call_args_list)
+
+
+async def test_surrender_during_roll_wins_over_round_resolution(bot_env):
+    """Сдача во время «броска кубиков»: раунд не рассчитывается, итог — сдача."""
+    dp, bot, engine, repo = bot_env
+    session = engine.start_duel(CHAT_ID, 500, 10, "@alice", 20, "@bob")
+    session.p1.choice = "top"
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        move_task = asyncio.create_task(dp.feed_update(bot, make_callback_update(1, BOB, DEFEND_TOP)))
+        await asyncio.sleep(0.05)  # раунд в фазе ROLLING, обработчик ждёт ROLL_DELAY_SEC
+        await dp.feed_update(bot, make_callback_update(2, BOB, SURRENDER))
+        await dp.feed_update(bot, make_callback_update(3, BOB, SURRENDER))
+        await move_task
+
+        assert "белый флаг" in mock_edit.call_args.kwargs["text"]
+    assert session.p2.hp == 2  # урон раунда не применялся
+    top = repo.get_top(CHAT_ID)
+    assert top[0].nickname == "@alice" and top[0].wins == 1
+
+
+async def test_stale_card_refresh_does_not_overwrite_outcome(bot_env):
+    """Правка карточки, «опоздавшая» после конца боя, не затирает итоговую карточку."""
+    _, _, engine, _ = bot_env
+    session = engine.start_duel(CHAT_ID, 500, 10, "@alice", 20, "@bob")
+    message = AsyncMock()
+    engine.surrender(session, session.p2)
+
+    assert await refresh_card(message, session) is True
+    message.edit_text.assert_not_called()
+    message.edit_reply_markup.assert_not_called()
+
+
+async def test_timer_is_cancelled_when_duel_ends(bot_env):
+    dp, bot, engine, _ = bot_env
+    make_invite(engine, msg_id=710)
 
     with patch.object(Message, "edit_text", new=AsyncMock()):
-        await dp.feed_update(bot, make_callback_update(1, bob, "accept_10_20", msg_id=702))
+        await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT, msg_id=710))
+        session = engine.get_session(CHAT_ID, 710)
+        timer = session.timeout_task
+        assert timer is not None and not timer.done()
 
-    session = engine.get_session(-1001, 702)
-    assert session is not None
-    assert session.p1.name == texts.FALLBACK_NICK
-    assert session.p2.name == "@bob"
+        await dp.feed_update(bot, make_callback_update(2, BOB, SURRENDER, msg_id=710))
+        await dp.feed_update(bot, make_callback_update(3, BOB, SURRENDER, msg_id=710))
+        await asyncio.sleep(0)
+
+    assert timer.cancelled() or timer.done()
+    assert engine.get_session(CHAT_ID, 710) is None

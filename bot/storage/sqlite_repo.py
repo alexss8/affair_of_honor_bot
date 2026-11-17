@@ -66,13 +66,6 @@ class SQLiteRepository:
             return user_id, f"@{uname}"
         return None
 
-    def get_user_names(self, chat_id: int, user_id: int) -> tuple[str | None, str] | None:
-        """Возвращает (username, first_name) из кэша участников чата или None."""
-        cur = self._get_conn().cursor()
-        cur.execute("SELECT username, first_name FROM chat_users WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
-        row = cur.fetchone()
-        return (row[0], row[1]) if row else None
-
     def record_duel(self, chat_id: int, winner: Player, loser: Player) -> int:
         conn = self._get_conn()
         with conn:

@@ -54,13 +54,15 @@ bot/
 ├── __main__.py            # точка входа: python -m bot
 ├── config.py, logger.py
 ├── domain/                # игровая логика без aiogram и БД: models, engine, phrases
-├── services/              # system_metrics — метрики для /status
+├── services/              # duel_service — завершение боя; system_metrics — метрики для /status
 ├── storage/               # base (Protocol), sqlite_repo, queued_repo
 └── telegram/
     ├── safe_api.py        # безопасные обёртки над Telegram API
     ├── middlewares.py     # кэш участников чата
+    ├── callbacks.py       # типизированные callback_data кнопок
+    ├── duel_cards.py      # правки карточки боя под блокировкой
     ├── duel_timer.py      # таймаут дуэли
-    ├── handlers/          # common, invite, battle, admin, errors
+    ├── handlers/          # common, invite, battle, admin, errors, fallback
     └── ui/                # texts, keyboards
 scripts/                   # deploy.sh, setup_env.py
 tests/
@@ -77,6 +79,7 @@ tests/
 | `DEFAULT_HP` | `5` | Количество жизней у каждого бойца |
 | `TOP_LIMIT` | `10` | Количество позиций в таблице лидеров `/top` |
 | `DUEL_TIMEOUT_SEC` | `300` | Длительность дуэли в секундах; по истечении побеждает боец с большим запасом жизней |
+| `INVITE_TTL_SEC` | `300` | Сколько секунд действует вызов на дуэль |
 | `DB_PATH` | `duels.db` | Путь к файлу базы данных SQLite |
 | `LOG_FILE` | `bot.log` | Путь к файлу логов |
 

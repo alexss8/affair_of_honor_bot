@@ -1,6 +1,7 @@
 import html
 
-from bot.domain.models import DuelSession, Player, PlayerStats
+from bot.domain.models import DuelSession, OutcomeKind, Player, PlayerStats
+from bot.services.duel_service import FinishedDuel
 
 FALLBACK_NICK = "Дуэлянт"
 
@@ -19,12 +20,11 @@ def render_invite(p1_name: str, p2_name: str) -> str:
     return f"🔥 <b>{p1_name}</b> вызывает <b>{p2_name}</b> на дуэль! ⚔️"
 
 
-def render_battle(session: DuelSession, log: str = "", is_rolling: bool = False) -> str:
+def render_battle(session: DuelSession) -> str:
     def hp_bar(hp: int) -> str:
         return "❤️" * hp + "🖤" * (session.max_hp - hp)
 
-    active_log = log or session.last_log
-    log_block = f"<i>{active_log}</i>\n\n" if active_log else ""
+    log_block = f"<i>{session.last_log}</i>\n\n" if session.last_log else ""
 
     att_icon = "✅" if session.attacker.choice else "🔴"
     def_icon = "✅" if session.defender.choice else "🟢"
@@ -68,6 +68,23 @@ def render_draw(reason: str, stats: list[PlayerStats], limit: int = 10, icon: st
         f"Рейтинг игроков не изменился.\n\n"
         f"{render_top(stats, limit)}"
     )
+
+
+def render_outcome(finished: FinishedDuel, limit: int) -> str:
+    """Итоговая карточка для любого исхода боя."""
+    outcome = finished.outcome
+    winner, loser = outcome.winner, outcome.loser
+    if outcome.kind is OutcomeKind.DRAW:
+        reason = f"⏰ Время дуэли вышло! У обоих бойцов осталось по {outcome.session.p1.hp} ❤️."
+        return render_draw(reason, finished.top, limit, icon="⏰")
+    if outcome.kind is OutcomeKind.SURRENDER:
+        reason, icon = f"{loser.name} выбросил белый флаг и сдался!", "🏳️"
+    elif outcome.kind is OutcomeKind.TIMEOUT:
+        reason = f"⏰ Время дуэли вышло! {winner.name} ({winner.hp} ❤️) оказался сильнее {loser.name} ({loser.hp} ❤️)."
+        icon = "⏰"
+    else:
+        reason, icon = outcome.session.last_log, "🏆"
+    return render_victory(finished.duel_id, winner, reason, finished.top, limit, icon=icon)
 
 
 def plural(n: int, one: str, few: str, many: str) -> str:

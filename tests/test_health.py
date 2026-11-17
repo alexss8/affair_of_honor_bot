@@ -3,8 +3,9 @@ import logging
 from unittest.mock import AsyncMock
 
 import pytest
-from aiogram import Bot, Dispatcher
+from aiogram import Bot
 from aiogram.types import Chat, Message, MessageEntity, Update, User
+from helpers import build_dispatcher
 
 from bot.config import Config
 from bot.domain.engine import DuelEngine
@@ -56,17 +57,12 @@ def health_env(tmp_path):
         db_path=str(db_file),
         log_file=str(log_file),
     )
-    engine = DuelEngine(repo=repo, logger=logger, default_hp=5)
+    engine = DuelEngine(logger=logger, default_hp=5)
 
     bot = AsyncMock(spec=Bot)
     bot.id = 999
 
-    dp = Dispatcher()
-    dp["config"] = config
-    dp["repo"] = repo
-    dp["engine"] = engine
-    dp["logger"] = logger
-    dp.include_router(router)
+    dp = build_dispatcher(config, repo, engine, logger)
 
     yield dp, bot, repo, engine
     router._parent_router = None

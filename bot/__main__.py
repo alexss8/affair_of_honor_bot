@@ -6,6 +6,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllGroupChats
 from bot.config import load_config
 from bot.domain.engine import DuelEngine
 from bot.logger import setup_logger
+from bot.services.duel_service import DuelService
 from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.handlers import router
@@ -20,13 +21,15 @@ async def main() -> None:
     repo.init()
     repo.start_worker()
 
-    engine = DuelEngine(repo=repo, logger=logger, default_hp=config.default_hp)
+    engine = DuelEngine(logger=logger, default_hp=config.default_hp, invite_ttl_sec=config.invite_ttl_sec)
+    service = DuelService(repo=repo, logger=logger, top_limit=config.top_limit)
 
     bot = Bot(token=config.bot_token)
     dp = Dispatcher()
     dp["config"] = config
     dp["repo"] = repo
     dp["engine"] = engine
+    dp["service"] = service
     dp["logger"] = logger
     dp.include_router(router)
 

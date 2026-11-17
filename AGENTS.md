@@ -8,11 +8,13 @@
 
 - **KISS & Zero-Infrastructure:** Не добавляйте внешние брокеры и базы (Redis, RabbitMQ, PostgreSQL, Docker) без прямого запроса. Проект рассчитан на легкий запуск на одном VPS с SQLite.
 - **SOLID & Separation of Concerns** (код живёт в пакете `bot/`, запуск: `python -m bot`):
-  - `bot/domain/` (`models`, `engine`, `phrases`) — чистая игровая логика и состояние сессий в памяти. Не импортируйте сюда `aiogram`.
+  - `bot/domain/` (`models`, `engine`, `phrases`) — чистая игровая логика: приглашения (`DuelInvite`, со сроком жизни), сессии с фазами (`DuelPhase`: `CHOOSING → ROLLING → FINISHED`) и итоги (`DuelOutcome`). Не импортируйте сюда `aiogram` и репозиторий. Все переходы состояния в `DuelEngine` — синхронные методы без `await`, поэтому атомарны; новые переходы пишите так же.
   - `bot/storage/` (`base` — Protocol репозитория, `sqlite_repo`, `queued_repo`) — вся работа с SQLite.
-  - `bot/services/` — вспомогательная логика без Telegram (`system_metrics` для `/status`).
+  - `bot/services/` — логика без Telegram: `duel_service` — единственное место завершения боя (запись в БД, лог, топ для итога); `system_metrics` для `/status`.
   - `bot/telegram/ui/` (`texts`, `keyboards`) — только генерация HTML-текстов и Inline-клавиатур. Никаких обращений к БД или API Telegram.
-  - `bot/telegram/handlers/` — только маршрутизация команд/коллбэков, валидация прав игрока и склейка `engine`, `repo` и `ui`. По модулю на тему: `common` (help/top/приветствие), `invite` (вызов и ответ на него), `battle` (ходы, сдача, `/cancel`), `admin` (`/status`), `errors`. Корневой `router` в `handlers/__init__.py` подключает middleware и все роутеры.
+  - `bot/telegram/handlers/` — только маршрутизация команд/коллбэков, валидация прав игрока и склейка `engine`, `repo` и `ui`. По модулю на тему: `common` (help/top/приветствие), `invite` (вызов и ответ на него), `battle` (ходы, сдача, `/cancel`), `admin` (`/status`), `errors`, `fallback` (устаревшие кнопки, подключается последним). Корневой `router` в `handlers/__init__.py` подключает middleware и все роутеры.
+  - `bot/telegram/callbacks.py` — `CallbackData`-фабрики кнопок; не склеивайте `callback_data` строками вручную.
+  - `bot/telegram/duel_cards.py` — все правки карточки боя идут через `refresh_card` / `announce_outcome` под `session.card_lock`, чтобы опоздавшая правка не перезаписала итог.
   - `bot/telegram/middlewares.py` — кэш участников чата; `bot/telegram/duel_timer.py` — таймаут дуэли.
 - **Стиль кода:** ruff (`pyproject.toml`, длина строки 120). Перед коммитом: `ruff check .` и `ruff format .`.
 - **Безопасность Telegram API:** Никогда не вызывайте `message.answer`, `message.reply`, `message.edit_text`, `message.edit_reply_markup`, `bot.edit_message_text`, `bot.get_chat` или `cb.answer` напрямую в `bot/telegram/handlers/`. Всегда используйте безопасные обертки из `bot/telegram/safe_api.py` (`safe_answer`, `safe_reply`, `safe_edit_text`, `safe_edit_text_by_id`, `safe_edit_markup`, `safe_get_chat`, `safe_answer_callback`), которые перехватывают `TelegramBadRequest`, `TelegramRetryAfter` и сетевые сбои.
@@ -67,6 +69,7 @@ py -3.12 -m ruff format --check .
 - `test_scenarios.py` — сквозные сценарии через `aiogram.Dispatcher` (вызов, отзыв вызова, сдача, отмена, двойное нажатие «Принять», ник инициатора из кэша).
 - `test_tg_errors.py` — проверка контракта `safe_api.py` на все ошибки Telegram API и очистка зависших сессий при удалении сообщения админом.
 - `test_health.py` — проверка метрик БД и прав доступа к админ-команде `/status`; лог для теста пишется настоящим форматтером из `bot/logger.py`.
+- `helpers.py` — общие хелперы тестов: `build_dispatcher`, `make_invite`, апдейты, готовые `callback_data` (`ACCEPT`, `ATTACK_TOP`, ...).
 - `test_setup_env.py` — мастер `scripts/setup_env.py` записывает в `.env` все настройки.
 - `test_phrases.py` — валидация пула реплик в `bot/domain/phrases.py`.
 - `test_load.py` — нагрузочный тест на 500 одновременных дуэлей с моком `asyncio.sleep`.
