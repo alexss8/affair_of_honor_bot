@@ -64,6 +64,8 @@
 ```
 *(Окружение `.venv` на Python 3.12 с зависимостями из `requirements-dev.txt` создаёт `py -3.12 scripts/setup_dev.py`; после изменения requirements — запустить его ещё раз. На Linux/Ubuntu: `.venv/bin/python -m pytest -v`.)*
 
+Те же три проверки на каждый push и pull request запускает GitHub Actions (`.github/workflows/ci.yml`, Ubuntu, Python 3.12).
+
 Новый функционал и исправления багов сопровождаются тестами; тест на баг должен падать на старом коде.
 
 ### План работ
