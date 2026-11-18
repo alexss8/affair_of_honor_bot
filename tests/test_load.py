@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import logging
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from aiogram import Bot
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
@@ -48,8 +48,7 @@ async def test_500_concurrent_handles(tmp_path):
             updates.append(Update(update_id=i + 1, callback_query=cb))
 
         start_time = time.perf_counter()
-        with patch("bot.telegram.handlers.battle.asyncio.sleep", new=AsyncMock()):
-            await asyncio.gather(*(dp.feed_update(bot, upd) for upd in updates))
+        await asyncio.gather(*(dp.feed_update(bot, upd) for upd in updates))
         await repo.stop_worker()
         elapsed = time.perf_counter() - start_time
 

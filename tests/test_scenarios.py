@@ -201,7 +201,8 @@ async def test_full_duel_and_surrender_scenario(bot_env):
             for call in mock_edit.call_args_list
             if call.kwargs.get("reply_markup")
         ]
-        assert any("Бросок кубиков" in f for f in all_footers)
+        assert mock_edit.await_count == 2  # по правке на каждый выбор, без фазы броска
+        assert not any("Бросок кубиков" in f for f in all_footers)
         round_result_text = all_texts[-1]
         assert "Бой начался! Выбирайте действия." not in round_result_text
         assert "🔴 Атакует: <b>@bob</b>" in round_result_text
@@ -346,23 +347,33 @@ async def test_stale_old_format_button_is_answered(bot_env):
     assert "кнопка устарела" in str(bot.call_args_list)
 
 
-async def test_surrender_during_roll_wins_over_round_resolution(bot_env):
-    """Сдача во время «броска кубиков»: раунд не рассчитывается, итог — сдача."""
-    dp, bot, engine, repo = bot_env
+async def test_second_choice_answers_and_shows_next_round(bot_env):
+    dp, bot, engine, _ = bot_env
     session = engine.start_duel(CHAT_ID, 500, 10, "@alice", 20, "@bob")
-    session.p1.choice = "top"
+    engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
 
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
-        move_task = asyncio.create_task(dp.feed_update(bot, make_callback_update(1, BOB, DEFEND_TOP)))
-        await asyncio.sleep(0.05)  # раунд в фазе ROLLING, обработчик ждёт ROLL_DELAY_SEC
-        await dp.feed_update(bot, make_callback_update(2, BOB, SURRENDER))
-        await dp.feed_update(bot, make_callback_update(3, BOB, SURRENDER))
-        await move_task
+        await dp.feed_update(bot, make_callback_update(1, BOB, DEFEND_BOT))
 
-        assert "белый флаг" in mock_edit.call_args.kwargs["text"]
-    assert session.p2.hp == 2  # урон раунда не применялся
-    top = repo.get_top(CHAT_ID)
-    assert top[0].nickname == "@alice" and top[0].wins == 1
+    [answer] = _callback_answers(bot)
+    assert answer.text == "Выбор принят!"
+    mock_edit.assert_awaited_once()
+    assert "🔴 Атакует: <b>@bob</b>" in mock_edit.call_args.kwargs["text"]
+
+
+async def test_knockout_by_second_choice_edits_card_once(bot_env):
+    dp, bot, engine, repo = bot_env
+    session = engine.start_duel(CHAT_ID, 500, 10, "@alice", 20, "@bob")
+    session.p2.hp = 1
+    engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp.feed_update(bot, make_callback_update(1, BOB, DEFEND_BOT))
+
+    mock_edit.assert_awaited_once()
+    assert "ОКОНЧЕНА" in mock_edit.call_args.kwargs["text"]
+    assert engine.get_session(CHAT_ID, 500) is None
+    assert [(s.nickname, s.wins) for s in repo.get_top(CHAT_ID)] == [("@alice", 1), ("@bob", 0)]
 
 
 async def test_stale_card_refresh_does_not_overwrite_outcome(bot_env):
@@ -448,20 +459,25 @@ async def test_shutdown_pauses_cards_and_startup_resumes_duel(bot_env):
     cancel_timers(engine2)
 
 
-async def test_startup_resolves_round_that_was_rolling(bot_env):
+async def test_startup_replays_round_saved_with_both_choices(bot_env):
+    """Снимок старой версии, остановленной во время броска: оба выбора сбрасываются, раунд переигрывается."""
     dp, bot, engine, repo = bot_env
     session = engine.start_duel(CHAT_ID, 730, 10, "@alice", 20, "@bob")
     session.p2.hp = 1
-    engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
-    engine.choose(session, session.p2, MoveKind.DEFEND, Zone.BOT)
+    session.p1.choice, session.p2.choice = Zone.TOP, Zone.BOT
     await dp.emit_shutdown(bot=bot, **dp.workflow_data)
 
     dp2, engine2 = _restart(dp, engine, repo)
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
         await dp2.emit_startup(bot=bot, **dp2.workflow_data)
-    assert "ОКОНЧЕНА" in mock_edit.call_args.kwargs["text"]
-    assert engine2.sessions == {}
-    assert [s.wins for s in repo.get_top(CHAT_ID)] == [1, 0]
+
+    restored = engine2.get_session(CHAT_ID, 730)
+    assert restored.phase is DuelPhase.CHOOSING
+    assert restored.p1.choice is None and restored.p2.choice is None
+    assert restored.p2.hp == 1
+    assert "ДУЭЛЬ" in mock_edit.call_args.kwargs["text"]
+    assert repo.get_top(CHAT_ID) == []
+    cancel_timers(engine2)
 
 
 async def test_startup_drops_gone_cards_and_expired_invites(bot_env):

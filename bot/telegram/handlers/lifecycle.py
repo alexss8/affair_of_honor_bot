@@ -13,10 +13,10 @@ from aiogram import Bot, Router
 
 from bot.config import Config
 from bot.domain.engine import DuelEngine
-from bot.domain.models import DuelInvite, DuelPhase, DuelSession
+from bot.domain.models import DuelInvite, DuelSession
 from bot.services.duel_service import DuelService
 from bot.storage.base import BaseRepository
-from bot.telegram.duel_cards import announce_outcome, card_message, refresh_card, show_final_notice
+from bot.telegram.duel_cards import card_message, refresh_card, show_final_notice
 from bot.telegram.duel_timer import start_duel_timer
 from bot.telegram.invite_timer import start_invite_timer
 from bot.telegram.safe_api import safe_edit_text, safe_edit_text_by_id
@@ -78,10 +78,6 @@ async def _resume_duel(
     bot: Bot, session: DuelSession, engine: DuelEngine, service: DuelService, full_timeout_sec: float
 ) -> None:
     message = card_message(bot, session.chat_id, session.message_id)
-    if session.phase is DuelPhase.ROLLING:  # бот остановился во время броска — досчитываем раунд
-        outcome = engine.resolve_round(session)
-        if outcome is not None:
-            return await announce_outcome(message, outcome, service)
     if not await refresh_card(message, session):
         engine.drop_session(session.chat_id, session.message_id)
         return

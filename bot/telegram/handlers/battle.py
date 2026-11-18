@@ -1,11 +1,9 @@
-import asyncio
-
 from aiogram import Bot, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from bot.domain.engine import DuelEngine
-from bot.domain.models import ChoiceResult, DuelPhase, DuelSession, Player
+from bot.domain.models import ChoiceResult, DuelSession, Player
 from bot.services.duel_service import DuelService
 from bot.telegram.callbacks import MoveCb, SurrenderCb
 from bot.telegram.duel_cards import announce_outcome, refresh_card, show_final_notice
@@ -15,15 +13,13 @@ from bot.telegram.ui import texts
 
 router = Router(name="battle")
 
-ROLL_DELAY_SEC = 0.8
 # Обычное окно чата (3 правки за 3 с) задерживает карточку до ~2 с — это ещё не притормаживание
 SLOW_HINT_SEC = 3.0
 
 # Ответ игроку на нажатие кнопки хода: (текст, показать как alert)
 _CHOICE_REPLIES: dict[ChoiceResult, tuple[str, bool]] = {
     ChoiceResult.ACCEPTED: ("Выбор принят! Ждем соперника.", False),
-    ChoiceResult.ROUND_READY: ("Выбор принят! Ждем соперника.", False),
-    ChoiceResult.ROUND_IN_PROGRESS: ("Раунд уже рассчитывается, подожди секунду!", False),
+    ChoiceResult.ROUND_RESOLVED: ("Выбор принят!", False),
     ChoiceResult.MUST_ATTACK: ("Сейчас твой ход АТАКОВАТЬ! Выбери один из ударов.", True),
     ChoiceResult.MUST_DEFEND: ("Сейчас твой ход ЗАЩИЩАТЬСЯ! Выбери один из блоков.", True),
     ChoiceResult.ALREADY_CHOSEN: ("Ты уже выбрал это действие! Ждем соперника.", False),
@@ -76,9 +72,9 @@ async def handle_move(
     if found is None:
         return
     session, player = found
-    result = engine.choose(session, player, callback_data.kind, callback_data.zone)
+    result, outcome = engine.choose(session, player, callback_data.kind, callback_data.zone)
     reply, show_alert = _CHOICE_REPLIES[result]
-    card_changes = result in (ChoiceResult.ACCEPTED, ChoiceResult.ROUND_READY)
+    card_changes = result in (ChoiceResult.ACCEPTED, ChoiceResult.ROUND_RESOLVED)
     if card_changes:
         wait_sec = limiter.estimate_wait(cb.message.chat.id)
         if wait_sec >= SLOW_HINT_SEC:
@@ -87,14 +83,7 @@ async def handle_move(
     if not card_changes:
         return
 
-    ok = await refresh_card(cb.message, session)
-    if ok and result is ChoiceResult.ROUND_READY:
-        await asyncio.sleep(ROLL_DELAY_SEC)
-        if session.phase is not DuelPhase.ROLLING:
-            return  # за время броска бой завершили сдачей, отменой или по таймауту
-        outcome = engine.resolve_round(session)
-        if outcome is not None:
-            return await announce_outcome(cb.message, outcome, service)
-        ok = await refresh_card(cb.message, session)
-    if not ok:
+    if outcome is not None:
+        return await announce_outcome(cb.message, outcome, service)
+    if not await refresh_card(cb.message, session):
         engine.drop_session(session.chat_id, session.message_id)

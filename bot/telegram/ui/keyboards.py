@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot.domain.models import DuelPhase, DuelSession, MoveKind, Zone
+from bot.domain.models import DuelSession, MoveKind, Zone
 from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb, SurrenderCb
 
 
@@ -25,9 +25,7 @@ def _move_button(text: str, kind: MoveKind, zone: Zone, style: str) -> InlineKey
 
 
 def battle_keyboard(session: DuelSession) -> InlineKeyboardMarkup:
-    if session.phase is DuelPhase.ROLLING:
-        footer_text = "🎲 Бросок кубиков..."
-    elif session.surrender_confirm_id is not None:
+    if session.surrender_confirm_id is not None:
         footer_text = "⚠️ Точно сдаться? (нажми еще раз)"
     elif session.p1.choice and not session.p2.choice:
         footer_text = f"⏳ Ждем {session.p2.name}... (Сдаться)"

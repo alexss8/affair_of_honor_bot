@@ -17,7 +17,6 @@ class DuelPhase(StrEnum):
     """Жизненный цикл боя. Приглашение (до боя) — отдельная сущность DuelInvite."""
 
     CHOOSING = "choosing"  # игроки выбирают удар/блок
-    ROLLING = "rolling"  # оба выбрали, идёт «бросок кубиков» перед расчётом раунда
     FINISHED = "finished"  # бой завершён любым способом; сессия удалена из движка
 
 
@@ -30,8 +29,7 @@ class OutcomeKind(StrEnum):
 
 class ChoiceResult(StrEnum):
     ACCEPTED = "accepted"  # выбор принят, ждём соперника
-    ROUND_READY = "round_ready"  # оба выбрали — раунд переходит в ROLLING
-    ROUND_IN_PROGRESS = "round_in_progress"
+    ROUND_RESOLVED = "round_resolved"  # оба выбрали — раунд рассчитан
     MUST_ATTACK = "must_attack"
     MUST_DEFEND = "must_defend"
     ALREADY_CHOSEN = "already_chosen"

@@ -169,11 +169,12 @@ class DuelEngine:
     def restore(self, sessions: list[DuelSession], invites: list[DuelInvite]) -> None:
         """Возвращает в игру бои и вызовы, сохранённые при остановке бота.
 
-        Бой, где оба игрока уже выбрали ход, продолжается с фазы ROLLING — раунд нужно досчитать.
+        Если в снимке оба игрока уже выбрали ход (так сохраняла версия с фазой броска), раунд переигрывается.
         """
         for session in sessions:
-            both_chose = session.p1.choice is not None and session.p2.choice is not None
-            session.phase = DuelPhase.ROLLING if both_chose else DuelPhase.CHOOSING
+            if session.p1.choice is not None and session.p2.choice is not None:
+                session.p1.choice = session.p2.choice = None
+            session.phase = DuelPhase.CHOOSING
             self.sessions[(session.chat_id, session.message_id)] = session
         for invite in invites:
             self.invites[(invite.chat_id, invite.message_id)] = invite
@@ -189,27 +190,31 @@ class DuelEngine:
 
     # ---------- Ходы ----------
 
-    def choose(self, session: DuelSession, player: Player, kind: MoveKind, zone: Zone) -> ChoiceResult:
+    def choose(
+        self, session: DuelSession, player: Player, kind: MoveKind, zone: Zone
+    ) -> tuple[ChoiceResult, DuelOutcome | None]:
+        """Принимает ход игрока; второй выбор в раунде сразу рассчитывает раунд.
+
+        Returns:
+            Результат выбора и итог боя, если раунд закончился нокаутом.
+        """
         if session.phase is not DuelPhase.CHOOSING:
-            return ChoiceResult.ROUND_IN_PROGRESS
+            raise ValueError(f"choose вызван в фазе {session.phase}")
         is_attacker = player.id == session.attacker_id
         if is_attacker and kind is not MoveKind.ATTACK:
-            return ChoiceResult.MUST_ATTACK
+            return ChoiceResult.MUST_ATTACK, None
         if not is_attacker and kind is not MoveKind.DEFEND:
-            return ChoiceResult.MUST_DEFEND
+            return ChoiceResult.MUST_DEFEND, None
         if player.choice == zone and session.surrender_confirm_id is None:
-            return ChoiceResult.ALREADY_CHOSEN
+            return ChoiceResult.ALREADY_CHOSEN, None
         player.choice = zone
         session.surrender_confirm_id = None
         if session.p1.choice and session.p2.choice:
-            session.phase = DuelPhase.ROLLING
-            return ChoiceResult.ROUND_READY
-        return ChoiceResult.ACCEPTED
+            return ChoiceResult.ROUND_RESOLVED, self._resolve_round(session)
+        return ChoiceResult.ACCEPTED, None
 
-    def resolve_round(self, session: DuelSession) -> DuelOutcome | None:
-        """Рассчитывает раунд в фазе ROLLING. Возвращает итог, если бой окончен нокаутом."""
-        if session.phase is not DuelPhase.ROLLING:
-            raise ValueError(f"resolve_round вызван в фазе {session.phase}")
+    def _resolve_round(self, session: DuelSession) -> DuelOutcome | None:
+        """Рассчитывает раунд, когда оба выбрали. Возвращает итог, если бой окончен нокаутом."""
         att, dfn = session.attacker, session.defender
         is_blocked = att.choice == dfn.choice
         if not is_blocked:
@@ -222,7 +227,6 @@ class DuelEngine:
 
         session.attacker_id = dfn.id
         session.p1.choice = session.p2.choice = None
-        session.phase = DuelPhase.CHOOSING
         return None
 
     # ---------- Сдача и таймаут ----------

@@ -46,10 +46,10 @@ def session(engine):
 
 
 def play_round(engine, session, attack: Zone, defend: Zone):
-    assert engine.choose(session, session.attacker, MoveKind.ATTACK, attack) is ChoiceResult.ACCEPTED
-    assert engine.choose(session, session.defender, MoveKind.DEFEND, defend) is ChoiceResult.ROUND_READY
-    assert session.phase is DuelPhase.ROLLING
-    return engine.resolve_round(session)
+    assert engine.choose(session, session.attacker, MoveKind.ATTACK, attack) == (ChoiceResult.ACCEPTED, None)
+    result, outcome = engine.choose(session, session.defender, MoveKind.DEFEND, defend)
+    assert result is ChoiceResult.ROUND_RESOLVED
+    return outcome
 
 
 # ---------- Репозиторий ----------
@@ -163,8 +163,8 @@ def test_suspended_snapshot_survives_new_column_from_future_migration(repo, engi
 
 
 def test_restore_registers_sessions_and_invites(engine, repo):
-    rolling = engine.start_duel(1, 100, 10, "Alice", 20, "Bob")
-    rolling.p1.choice = rolling.p2.choice = Zone.TOP
+    both_chose = engine.start_duel(1, 100, 10, "Alice", 20, "Bob")  # снимок старой версии, остановленной на броске
+    both_chose.p1.choice = both_chose.p2.choice = Zone.TOP
     choosing = engine.start_duel(1, 101, 30, "Carol", 40, "Dave")
     invite = engine.create_invite(1, 200, 50, "Eve", 60, "Frank")
     repo.save_suspended(*engine.interrupt_all(), now=0.0)
@@ -172,7 +172,10 @@ def test_restore_registers_sessions_and_invites(engine, repo):
 
     engine.restore(sessions, invites)
 
-    assert engine.get_session(1, 100).phase is DuelPhase.ROLLING
+    replayed = engine.get_session(1, 100)
+    assert replayed.phase is DuelPhase.CHOOSING
+    assert replayed.p1.choice is None and replayed.p2.choice is None  # раунд переигрывается
+    assert (replayed.p1.hp, replayed.p2.hp) == (5, 5)
     assert engine.get_session(1, 101).phase is DuelPhase.CHOOSING
     assert engine.is_user_busy(1, 40) is True
     assert engine.get_invite(1, 200).challenger_id == invite.challenger_id
@@ -247,18 +250,44 @@ def test_close_invite_reports_whether_it_was_open(engine):
 
 def test_choice_rules(engine, session):
     alice, bob = session.p1, session.p2  # Alice атакует первой
-    assert engine.choose(session, alice, MoveKind.DEFEND, Zone.TOP) is ChoiceResult.MUST_ATTACK
-    assert engine.choose(session, bob, MoveKind.ATTACK, Zone.TOP) is ChoiceResult.MUST_DEFEND
-    assert engine.choose(session, alice, MoveKind.ATTACK, Zone.TOP) is ChoiceResult.ACCEPTED
-    assert engine.choose(session, alice, MoveKind.ATTACK, Zone.TOP) is ChoiceResult.ALREADY_CHOSEN
-    assert engine.choose(session, alice, MoveKind.ATTACK, Zone.BOT) is ChoiceResult.ACCEPTED  # передумала
-    assert engine.choose(session, bob, MoveKind.DEFEND, Zone.TOP) is ChoiceResult.ROUND_READY
-    assert engine.choose(session, alice, MoveKind.ATTACK, Zone.TOP) is ChoiceResult.ROUND_IN_PROGRESS
+    assert engine.choose(session, alice, MoveKind.DEFEND, Zone.TOP) == (ChoiceResult.MUST_ATTACK, None)
+    assert engine.choose(session, bob, MoveKind.ATTACK, Zone.TOP) == (ChoiceResult.MUST_DEFEND, None)
+    assert engine.choose(session, alice, MoveKind.ATTACK, Zone.TOP) == (ChoiceResult.ACCEPTED, None)
+    assert engine.choose(session, alice, MoveKind.ATTACK, Zone.TOP) == (ChoiceResult.ALREADY_CHOSEN, None)
+    assert engine.choose(session, alice, MoveKind.ATTACK, Zone.BOT) == (ChoiceResult.ACCEPTED, None)  # передумала
+    assert engine.choose(session, bob, MoveKind.DEFEND, Zone.TOP) == (ChoiceResult.ROUND_RESOLVED, None)
 
 
-def test_resolve_round_requires_rolling_phase(engine, session):
+def test_second_choice_resolves_round_at_once(engine, session):
+    engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
+
+    assert engine.choose(session, session.p2, MoveKind.DEFEND, Zone.BOT) == (ChoiceResult.ROUND_RESOLVED, None)
+
+    assert session.p2.hp == 4
+    assert session.attacker_id == 20
+    assert session.p1.choice is None and session.p2.choice is None
+    assert session.phase is DuelPhase.CHOOSING
+    assert "Alice" in session.last_log
+
+
+def test_second_choice_returns_knockout(engine, session):
+    session.p2.hp = 1
+    engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
+
+    result, outcome = engine.choose(session, session.p2, MoveKind.DEFEND, Zone.BOT)
+
+    assert result is ChoiceResult.ROUND_RESOLVED
+    assert outcome.kind is OutcomeKind.KNOCKOUT
+    assert outcome.winner is session.p1 and outcome.loser is session.p2
+    assert session.phase is DuelPhase.FINISHED
+    assert engine.get_session(1, 100) is None
+
+
+def test_choose_in_finished_duel_raises(engine, session):
+    engine.surrender(session, session.p2)
+
     with pytest.raises(ValueError):
-        engine.resolve_round(session)
+        engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
 
 
 def test_block_prevents_damage(engine, session):
@@ -380,22 +409,15 @@ def test_render_battle_status_icons_and_persistent_log(engine, session):
     assert "🟢 Защищается: <b>Bob</b>" in after_att_choice
     assert "Бой начался! Выбирайте действия." in after_att_choice
 
-    # 3. Защищающийся выбрал блок -> оба с галочками, фраза все еще не пропала
+    # 3. Защищающийся выбрал блок -> раунд сразу рассчитан: роли поменялись, кружки сбросились, фраза новая
     engine.choose(session, session.p2, MoveKind.DEFEND, Zone.BOT)
-    both_chosen_text = texts.render_battle(session)
-    assert "✅ Атакует: <b>Alice</b>" in both_chosen_text
-    assert "✅ Защищается: <b>Bob</b>" in both_chosen_text
-    assert "Бой начался! Выбирайте действия." in both_chosen_text
-
-    # 4. Раунд завершился -> роли поменялись, кружки сбросились, фраза обновилась на новую
-    assert engine.resolve_round(session) is None
     next_round_text = texts.render_battle(session)
     assert "🔴 Атакует: <b>Bob</b>" in next_round_text
     assert "🟢 Защищается: <b>Alice</b>" in next_round_text
     assert session.last_log in next_round_text
     assert "Бой начался! Выбирайте действия." not in next_round_text
 
-    # 5. В новом раунде защитник выбрал блок -> зеленый кружок сменился на галочку, фраза прошлого раунда сохранилась
+    # 4. В новом раунде защитник выбрал блок -> зеленый кружок сменился на галочку, фраза прошлого раунда сохранилась
     engine.choose(session, session.p1, MoveKind.DEFEND, Zone.TOP)
     after_def_choice = texts.render_battle(session)
     assert "🔴 Атакует: <b>Bob</b>" in after_def_choice
