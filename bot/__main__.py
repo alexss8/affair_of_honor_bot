@@ -7,6 +7,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllGroupChats
 from bot.config import EXIT_CONFIG_ERROR, Config, ConfigError, load_config
 from bot.domain.engine import DuelEngine
 from bot.logger import setup_logger
+from bot.services.alert_throttle import AlertThrottle
 from bot.services.duel_service import DuelService
 from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
@@ -31,6 +32,7 @@ async def main(config: Config) -> None:
     dp["engine"] = engine
     dp["service"] = service
     dp["logger"] = logger
+    dp["alerts"] = AlertThrottle()
     dp.include_router(router)
 
     try:

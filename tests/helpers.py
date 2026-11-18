@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, U
 from bot.config import Config
 from bot.domain.engine import DuelEngine
 from bot.domain.models import DuelInvite, MoveKind, Zone
+from bot.services.alert_throttle import AlertThrottle
 from bot.services.duel_service import DuelService
 from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb, SurrenderCb
 from bot.telegram.handlers import router
@@ -46,6 +47,7 @@ def build_dispatcher(config: Config, repo, engine: DuelEngine, logger: logging.L
     dp["engine"] = engine
     dp["service"] = DuelService(repo=repo, logger=logger, top_limit=config.top_limit)
     dp["logger"] = logger
+    dp["alerts"] = AlertThrottle()
     dp.include_router(router)
     return dp
 
