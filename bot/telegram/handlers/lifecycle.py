@@ -18,6 +18,7 @@ from bot.services.duel_service import DuelService
 from bot.storage.base import BaseRepository
 from bot.telegram.duel_cards import announce_outcome, card_message, refresh_card, show_final_notice
 from bot.telegram.duel_timer import start_duel_timer
+from bot.telegram.invite_timer import start_invite_timer
 from bot.telegram.safe_api import safe_edit_text, safe_edit_text_by_id
 from bot.telegram.ui import keyboards, texts
 
@@ -93,3 +94,5 @@ async def _resume_invite(bot: Bot, invite: DuelInvite, engine: DuelEngine) -> No
     text = texts.render_invite(invite.challenger_name, invite.target_name)
     if not await safe_edit_text(message, text, reply_markup=keyboards.invite_keyboard()):
         engine.close_invite(invite)
+        return
+    start_invite_timer(invite, message, engine)

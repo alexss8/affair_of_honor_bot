@@ -12,6 +12,7 @@ from bot.domain.engine import DuelEngine
 from bot.domain.models import DuelInvite, MoveKind, Zone
 from bot.services.alert_throttle import AlertThrottle
 from bot.services.duel_service import DuelService
+from bot.telegram import invite_timer
 from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb, SurrenderCb
 from bot.telegram.handlers import router
 
@@ -58,6 +59,8 @@ def cancel_timers(engine: DuelEngine) -> None:
     for session in list(engine.sessions.values()):
         if session.timeout_task and not session.timeout_task.done():
             session.timeout_task.cancel()
+    for task in list(invite_timer._tasks):
+        task.cancel()
 
 
 def make_invite(

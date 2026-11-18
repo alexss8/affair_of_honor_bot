@@ -200,14 +200,40 @@ def test_accept_invite_refused_when_player_busy(engine):
     assert engine.get_invite(1, 100) is invite  # решение о закрытии остаётся за обработчиком
 
 
-def test_invite_expiry_and_purge(engine):
+def test_invite_expiry(engine):
     old = engine.create_invite(1, 100, 10, "Alice", 20, "Bob", now=0)
     assert not old.is_expired(59)
     assert old.is_expired(60)
 
-    engine.create_invite(1, 101, 30, "Troll", 20, "Bob", now=61)  # создание чистит истёкшие
-    assert engine.get_invite(1, 100) is None
-    assert engine.get_invite(1, 101) is not None
+
+def test_second_open_invite_from_same_challenger_is_refused(engine):
+    assert engine.reserve_invite(1, 10, now=0) is True
+    engine.create_invite(1, 100, 10, "Alice", 20, "Bob", now=0)
+
+    assert engine.reserve_invite(1, 10, now=1) is False
+
+
+def test_reserved_invite_counts_as_open_until_card_is_sent(engine):
+    assert engine.reserve_invite(1, 10, now=0) is True
+    assert engine.reserve_invite(1, 10, now=0) is False  # второй /duel, пока карточка первого отправляется
+
+
+def test_new_invite_allowed_elsewhere_and_after_first_is_closed(engine):
+    invite = engine.create_invite(1, 100, 10, "Alice", 20, "Bob", now=0)
+
+    assert engine.reserve_invite(2, 10, now=1) is True  # другой чат
+    assert engine.reserve_invite(1, 30, now=1) is True  # другой инициатор тому же сопернику
+    assert engine.reserve_invite(1, 10, now=60) is True  # первый вызов истёк
+    engine.release_invite_reservation(1, 10)
+    assert engine.close_invite(invite) is True
+    assert engine.reserve_invite(1, 10, now=1) is True  # первый вызов закрыт
+
+
+def test_released_reservation_allows_next_invite(engine):
+    assert engine.reserve_invite(1, 10, now=0) is True
+    engine.release_invite_reservation(1, 10)  # карточку отправить не удалось
+
+    assert engine.reserve_invite(1, 10, now=0) is True
 
 
 def test_close_invite_reports_whether_it_was_open(engine):

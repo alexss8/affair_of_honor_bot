@@ -13,6 +13,7 @@ from bot.storage.base import BaseRepository
 from bot.telegram.callbacks import InviteAction, InviteCb
 from bot.telegram.duel_cards import refresh_card
 from bot.telegram.duel_timer import start_duel_timer
+from bot.telegram.invite_timer import start_invite_timer
 from bot.telegram.safe_api import safe_answer, safe_answer_callback, safe_edit_text, safe_reply
 from bot.telegram.ui import keyboards, texts
 
@@ -57,9 +58,19 @@ async def cmd_duel(message: Message, engine: DuelEngine, repo: BaseRepository):
         return await safe_reply(message, "Нельзя вызвать самого себя или бота.")
     if engine.is_user_busy(cid, p1.id) or engine.is_user_busy(cid, p2_id):
         return await safe_reply(message, "Один из игроков уже участвует в другой дуэли!")
-    sent = await safe_answer(message, texts.render_invite(p1_name, p2_name), reply_markup=keyboards.invite_keyboard())
+    if not engine.reserve_invite(cid, p1.id):
+        return await safe_reply(message, "У тебя уже есть открытый вызов — дождись ответа или отзови его.")
+    sent = None
+    try:
+        sent = await safe_answer(
+            message, texts.render_invite(p1_name, p2_name), reply_markup=keyboards.invite_keyboard()
+        )
+    finally:
+        if sent is None:  # карточку отправить не удалось — бронь не должна блокировать следующий /duel
+            engine.release_invite_reservation(cid, p1.id)
     if sent is not None:
-        engine.create_invite(cid, sent.message_id, p1.id, p1_name, p2_id, p2_name)
+        invite = engine.create_invite(cid, sent.message_id, p1.id, p1_name, p2_id, p2_name)
+        start_invite_timer(invite, sent, engine)
 
 
 @router.callback_query(InviteCb.filter(F.action == InviteAction.REVOKE))

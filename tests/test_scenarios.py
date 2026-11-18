@@ -35,6 +35,7 @@ from bot.domain.models import DuelPhase, MoveKind, Zone
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.duel_cards import refresh_card
 from bot.telegram.handlers import router
+from bot.telegram.ui import texts
 
 
 @pytest.fixture
@@ -498,3 +499,118 @@ async def test_shutdown_marks_cards_interrupted_when_snapshot_fails(bot_env):
     assert engine.sessions == {} and engine.invites == {}
     assert timer.cancelled()
     assert repo.get_top(CHAT_ID) == []
+
+
+# --- 5.6: один открытый вызов от игрока и вызов, истекающий сам ---
+
+
+def _duel_command(update_id: int, user=ALICE, target=BOB):
+    reply_to = Message(
+        message_id=1,
+        date=datetime.datetime.now(),
+        chat=Chat(id=CHAT_ID, type="supergroup"),
+        from_user=target,
+        text="hi",
+    )
+    entities = [MessageEntity(type="bot_command", offset=0, length=5)]
+    return make_msg_update(update_id, user, "/duel", entities=entities, reply_to=reply_to)
+
+
+def _card(message_id: int = 777) -> Message:
+    return Message(
+        message_id=message_id, date=datetime.datetime.now(), chat=Chat(id=CHAT_ID, type="supergroup"), text="x"
+    )
+
+
+async def test_second_duel_command_while_invite_open_is_refused(bot_env):
+    dp, bot, engine, _ = bot_env
+
+    with (
+        patch.object(Message, "answer", new=AsyncMock(return_value=_card())) as mock_answer,
+        patch.object(Message, "reply", new=AsyncMock()) as mock_reply,
+    ):
+        await dp.feed_update(bot, _duel_command(1))
+        await dp.feed_update(bot, _duel_command(2, target=TROLL))
+
+    assert mock_answer.await_count == 1
+    assert "открытый вызов" in mock_reply.call_args.args[0]
+    assert len(engine.invites) == 1
+
+
+async def test_simultaneous_duel_commands_create_one_card(bot_env):
+    dp, bot, engine, _ = bot_env
+
+    async def slow_send(*args, **kwargs):
+        await asyncio.sleep(0.05)  # первая карточка ещё в пути, когда приходит второй /duel
+        return _card()
+
+    with (
+        patch.object(Message, "answer", new=AsyncMock(side_effect=slow_send)) as mock_answer,
+        patch.object(Message, "reply", new=AsyncMock()),
+    ):
+        await asyncio.gather(dp.feed_update(bot, _duel_command(1)), dp.feed_update(bot, _duel_command(2)))
+
+    assert mock_answer.await_count == 1
+    assert len(engine.invites) == 1
+
+
+async def test_failed_card_send_does_not_block_next_duel(bot_env):
+    dp, bot, engine, _ = bot_env
+    gone = TelegramBadRequest(method=AsyncMock(), message="Bad Request: chat not found")
+
+    with patch.object(Message, "answer", new=AsyncMock(side_effect=[gone, _card()])) as mock_answer:
+        await dp.feed_update(bot, _duel_command(1))
+        await dp.feed_update(bot, _duel_command(2))
+
+    assert mock_answer.await_count == 2
+    assert engine.get_invite(CHAT_ID, 777) is not None
+
+
+async def test_unanswered_invite_expires_by_itself(bot_env):
+    dp, bot, engine, _ = bot_env
+    engine.invite_ttl_sec = 0.05
+
+    with (
+        patch.object(Message, "answer", new=AsyncMock(return_value=_card())) as mock_answer,
+        patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit,
+    ):
+        await dp.feed_update(bot, _duel_command(1))
+        await asyncio.sleep(0.15)
+
+        assert mock_edit.call_args.kwargs["text"] == texts.INVITE_EXPIRED
+        assert mock_edit.call_args.kwargs["reply_markup"] is None
+        assert engine.invites == {}
+
+        await dp.feed_update(bot, _duel_command(2))  # можно бросить новый вызов
+    assert mock_answer.await_count == 2
+
+
+async def test_accepted_invite_is_not_marked_expired(bot_env):
+    dp, bot, engine, _ = bot_env
+    engine.invite_ttl_sec = 0.05
+
+    with (
+        patch.object(Message, "answer", new=AsyncMock(return_value=_card())),
+        patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit,
+    ):
+        await dp.feed_update(bot, _duel_command(1))
+        await dp.feed_update(bot, make_callback_update(2, BOB, ACCEPT, msg_id=777))
+        await asyncio.sleep(0.15)
+
+    assert engine.get_session(CHAT_ID, 777) is not None
+    assert all(c.kwargs["text"] != texts.INVITE_EXPIRED for c in mock_edit.await_args_list)
+
+
+async def test_restored_invite_expires_by_itself(bot_env):
+    dp, bot, engine, repo = bot_env
+    make_invite(engine, msg_id=750, now=time.time() - engine.invite_ttl_sec + 0.05)
+    await dp.emit_shutdown(bot=bot, **dp.workflow_data)
+
+    dp2, engine2 = _restart(dp, engine, repo)
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp2.emit_startup(bot=bot, **dp2.workflow_data)
+        assert engine2.get_invite(CHAT_ID, 750) is not None
+        await asyncio.sleep(0.15)
+
+    assert mock_edit.call_args.kwargs["text"] == texts.INVITE_EXPIRED
+    assert engine2.invites == {}

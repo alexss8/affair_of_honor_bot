@@ -31,8 +31,32 @@ class DuelEngine:
         self.invite_ttl_sec = invite_ttl_sec
         self.sessions: dict[tuple[int, int], DuelSession] = {}
         self.invites: dict[tuple[int, int], DuelInvite] = {}
+        # (chat_id, challenger_id) игроков, чья карточка вызова отправляется: вызов уже считается открытым
+        self._reserved_invites: set[tuple[int, int]] = set()
 
     # ---------- Приглашения ----------
+
+    def reserve_invite(self, chat_id: int, challenger_id: int, now: float | None = None) -> bool:
+        """Бронирует вызов до отправки карточки: у игрока в чате не больше одного открытого вызова.
+
+        Синхронна, поэтому два одновременных /duel не пройдут оба. Бронь снимает create_invite
+        или release_invite_reservation, если карточку отправить не удалось.
+
+        Returns:
+            False, если у игрока уже есть неистёкший вызов в этом чате или его карточка отправляется.
+        """
+        now = time.time() if now is None else now
+        key = (chat_id, challenger_id)
+        if key in self._reserved_invites or any(
+            inv.chat_id == chat_id and inv.challenger_id == challenger_id and not inv.is_expired(now)
+            for inv in self.invites.values()
+        ):
+            return False
+        self._reserved_invites.add(key)
+        return True
+
+    def release_invite_reservation(self, chat_id: int, challenger_id: int) -> None:
+        self._reserved_invites.discard((chat_id, challenger_id))
 
     def create_invite(
         self,
@@ -45,7 +69,7 @@ class DuelEngine:
         now: float | None = None,
     ) -> DuelInvite:
         now = time.time() if now is None else now
-        self._purge_expired_invites(now)
+        self.release_invite_reservation(chat_id, challenger_id)
         invite = DuelInvite(
             chat_id=chat_id,
             message_id=message_id,
@@ -86,10 +110,6 @@ class DuelEngine:
             invite.target_id,
             invite.target_name,
         )
-
-    def _purge_expired_invites(self, now: float) -> None:
-        for key in [key for key, inv in self.invites.items() if inv.is_expired(now)]:
-            del self.invites[key]
 
     # ---------- Сессии ----------
 
