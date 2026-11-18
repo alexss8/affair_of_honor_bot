@@ -9,12 +9,15 @@ from bot.domain.models import ChoiceResult, DuelPhase, DuelSession, Player
 from bot.services.duel_service import DuelService
 from bot.telegram.callbacks import MoveCb, SurrenderCb
 from bot.telegram.duel_cards import announce_outcome, refresh_card, show_final_notice
+from bot.telegram.rate_limiter import RateLimiter
 from bot.telegram.safe_api import safe_answer_callback, safe_reply
 from bot.telegram.ui import texts
 
 router = Router(name="battle")
 
 ROLL_DELAY_SEC = 0.8
+# Обычное окно чата (3 правки за 3 с) задерживает карточку до ~2 с — это ещё не притормаживание
+SLOW_HINT_SEC = 3.0
 
 # Ответ игроку на нажатие кнопки хода: (текст, показать как alert)
 _CHOICE_REPLIES: dict[ChoiceResult, tuple[str, bool]] = {
@@ -66,15 +69,22 @@ async def handle_surrender(cb: CallbackQuery, engine: DuelEngine, service: DuelS
 
 
 @router.callback_query(MoveCb.filter())
-async def handle_move(cb: CallbackQuery, callback_data: MoveCb, engine: DuelEngine, service: DuelService):
+async def handle_move(
+    cb: CallbackQuery, callback_data: MoveCb, engine: DuelEngine, service: DuelService, limiter: RateLimiter
+):
     found = await _get_player_session(cb, engine)
     if found is None:
         return
     session, player = found
     result = engine.choose(session, player, callback_data.kind, callback_data.zone)
     reply, show_alert = _CHOICE_REPLIES[result]
+    card_changes = result in (ChoiceResult.ACCEPTED, ChoiceResult.ROUND_READY)
+    if card_changes:
+        wait_sec = limiter.estimate_wait(cb.message.chat.id)
+        if wait_sec >= SLOW_HINT_SEC:
+            reply = texts.render_slow_choice(wait_sec)
     await safe_answer_callback(cb, reply, show_alert=show_alert)
-    if result not in (ChoiceResult.ACCEPTED, ChoiceResult.ROUND_READY):
+    if not card_changes:
         return
 
     ok = await refresh_card(cb.message, session)

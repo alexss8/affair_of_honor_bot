@@ -1,4 +1,5 @@
 import html
+import math
 
 from bot.domain.models import DuelInvite, DuelSession, OutcomeKind, Player, PlayerStats
 from bot.services.duel_service import FinishedDuel
@@ -117,6 +118,14 @@ def render_outcome(finished: FinishedDuel, limit: int) -> str:
     else:
         reason, icon = outcome.session.last_log, "🏆"
     return render_victory(finished.duel_id, winner, reason, finished.top, limit, icon=icon)
+
+
+def render_slow_choice(wait_sec: float) -> str:
+    """Ответ на ход, когда карточка обновится не сразу: у чата пауза после 429 или длинная очередь."""
+    return (
+        "⏳ Выбор принят! Telegram притормаживает бота — слишком много боёв сразу, "
+        f"карточка обновится через ~{math.ceil(wait_sec)} с"
+    )
 
 
 def plural(n: int, one: str, few: str, many: str) -> str:

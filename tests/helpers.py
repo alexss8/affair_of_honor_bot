@@ -16,6 +16,7 @@ from bot.services.duel_service import DuelService
 from bot.telegram import invite_timer
 from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb, SurrenderCb
 from bot.telegram.handlers import router
+from bot.telegram.rate_limiter import RateLimiter
 
 TOKEN = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 CHAT_ID = -1001
@@ -63,7 +64,9 @@ def max_in_window(times: list[float], period: float) -> int:
     return max(sum(1 for u in times if t <= u < t + period) for t in times)
 
 
-def build_dispatcher(config: Config, repo, engine: DuelEngine, logger: logging.Logger) -> Dispatcher:
+def build_dispatcher(
+    config: Config, repo, engine: DuelEngine, logger: logging.Logger, limiter: RateLimiter | None = None
+) -> Dispatcher:
     """Dispatcher с теми же зависимостями, что и в bot/__main__.py.
 
     После теста обязательно сбросить router._parent_router = None (см. .claude/rules/tests.md).
@@ -76,6 +79,7 @@ def build_dispatcher(config: Config, repo, engine: DuelEngine, logger: logging.L
     dp["logger"] = logger
     dp["alerts"] = AlertThrottle()
     dp["started_at"] = time.time()
+    dp["limiter"] = limiter or RateLimiter()
     dp.include_router(router)
     return dp
 

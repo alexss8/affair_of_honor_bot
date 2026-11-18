@@ -16,10 +16,10 @@ from bot.telegram.handlers import router
 from bot.telegram.rate_limiter import RateLimiter
 
 
-def create_bot(token: str) -> Bot:
+def create_bot(token: str, limiter: RateLimiter) -> Bot:
     """Бот, все запросы которого идут через лимитер."""
     bot = Bot(token=token)
-    bot.session.middleware(RateLimiter())
+    bot.session.middleware(limiter)
     return bot
 
 
@@ -35,7 +35,8 @@ async def main(config: Config) -> None:
     engine = DuelEngine(logger=logger, default_hp=config.default_hp, invite_ttl_sec=config.invite_ttl_sec)
     service = DuelService(repo=repo, logger=logger, top_limit=config.top_limit)
 
-    bot = create_bot(config.bot_token)
+    limiter = RateLimiter()
+    bot = create_bot(config.bot_token, limiter)
     dp = Dispatcher()
     dp["config"] = config
     dp["repo"] = repo
@@ -44,6 +45,7 @@ async def main(config: Config) -> None:
     dp["logger"] = logger
     dp["alerts"] = AlertThrottle()
     dp["started_at"] = started_at
+    dp["limiter"] = limiter
     dp.include_router(router)
 
     try:

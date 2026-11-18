@@ -23,6 +23,7 @@ from bot.telegram.rate_limiter import (
     GROUP_MIN_LIMIT,
     GROUP_PERIOD_SEC,
     RateLimiter,
+    find_rate_limiter,
 )
 from bot.telegram.safe_api import safe_edit_text
 
@@ -142,9 +143,10 @@ async def test_idle_chat_state_is_dropped(limiter, clock):
 
 
 def test_created_bot_sends_through_rate_limiter():
-    bot: Bot = create_bot("123456:TEST")
+    limiter = RateLimiter()
+    bot: Bot = create_bot("123456:TEST", limiter)
 
-    assert any(isinstance(m, RateLimiter) for m in bot.session.middleware)
+    assert find_rate_limiter(bot) is limiter
 
 
 # --- 5.4: обратная связь по 429 ---
@@ -319,3 +321,99 @@ async def test_first_group_flood_throttles_other_groups_in_flight(limiter, clock
     after_flood = times[sent_before_flood:]
     for t in after_flood:  # каждая отправка после 429 укладывается в 20 за минуту, считая и отправленные до него
         assert sum(1 for u in times if t - GROUP_PERIOD_SEC < u <= t) <= GROUP_FALLBACK_LIMIT
+
+
+# --- 5.8: оценка ожидания для подсказки игроку ---
+
+
+async def test_estimate_for_unknown_chat_is_zero(limiter):
+    assert limiter.estimate_wait(GROUP) == 0.0
+
+
+async def test_estimate_for_unknown_chat_includes_pause_of_every_chat(limiter, clock):
+    request = flooding_sender(clock, [], {GROUP: [5], OTHER_GROUP: [8]})
+    await call_ignoring_flood(limiter, request, edit(GROUP))
+    await call_ignoring_flood(limiter, request, edit(OTHER_GROUP))
+
+    assert limiter.estimate_wait(-100789) == pytest.approx(8)
+    assert -100789 not in limiter._chats  # оценка не заводит состояние чата
+
+
+async def test_estimate_counts_down_flood_pause(limiter, clock):
+    await call_ignoring_flood(limiter, flooding_sender(clock, [], {GROUP: [10]}), edit(GROUP))
+
+    assert limiter.estimate_wait(GROUP) == pytest.approx(10)
+    clock.now += 4
+    assert limiter.estimate_wait(GROUP) == pytest.approx(6)
+
+
+def gated_limiter(clock: FakeClock, gate: asyncio.Event) -> RateLimiter:
+    """Лимитер, чьи ожидания стоят, пока закрыт gate: так видно, кто ждёт, до того как время сдвинется."""
+
+    async def sleep(delay: float) -> None:
+        await gate.wait()
+        await clock.sleep(delay)
+
+    return RateLimiter(clock=clock, sleep=sleep)
+
+
+async def settle() -> None:
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+async def test_estimate_matches_actual_send_time_behind_queue(clock):
+    gate = asyncio.Event()
+    gate.set()
+    limiter = gated_limiter(clock, gate)
+    limiter.group_limit = 20
+    log: list = []
+    request = make_sender(clock, log)
+    await asyncio.gather(*(limiter(request, None, edit(GROUP, i)) for i in range(20)))  # окно группы заполнено
+    gate.clear()
+    queued = [asyncio.create_task(limiter(request, None, edit(GROUP, 100 + i))) for i in range(3)]
+    await settle()  # запросы встали в очередь чата
+
+    estimated_at, estimate = clock.now, limiter.estimate_wait(GROUP)
+    gate.set()
+    await limiter(request, None, edit(GROUP, 200))
+    await asyncio.gather(*queued)
+
+    sent_at = next(t for t, m in log if m.text == "правка 200")
+    assert estimate > 0
+    assert estimate == pytest.approx(sent_at - estimated_at)
+
+
+async def test_estimate_does_not_take_a_slot(limiter, clock):
+    log: list = []
+    request = make_sender(clock, log)
+    for i in range(CHAT_LIMIT - 1):
+        await limiter(request, None, edit(GROUP, i))
+    sleeps_before = clock.sleeps
+
+    for _ in range(5):
+        assert limiter.estimate_wait(GROUP) == 0.0
+    await limiter(request, None, edit(GROUP, 99))
+
+    assert clock.sleeps == sleeps_before  # последний свободный слот не заняла оценка
+
+
+async def test_estimate_forgets_finished_and_cancelled_waiters(clock):
+    gate = asyncio.Event()
+    limiter = gated_limiter(clock, gate)
+    await call_ignoring_flood(limiter, flooding_sender(clock, [], {GROUP: [10]}), edit(GROUP))
+    alone = limiter.estimate_wait(GROUP)
+    cancelled = [asyncio.create_task(limiter.wait_ready(GROUP)) for _ in range(3)]
+    await settle()
+    assert limiter.estimate_wait(GROUP) > alone  # ждущие учитываются
+
+    for task in cancelled:
+        task.cancel()
+    await asyncio.gather(*cancelled, return_exceptions=True)
+    assert limiter.estimate_wait(GROUP) == pytest.approx(alone)
+
+    finished = [asyncio.create_task(limiter.wait_ready(GROUP)) for _ in range(3)]
+    await settle()
+    gate.set()
+    await asyncio.gather(*finished)
+    assert limiter.estimate_wait(GROUP) == 0.0

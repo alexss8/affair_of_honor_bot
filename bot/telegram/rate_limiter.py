@@ -10,10 +10,11 @@
 """
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 
 from aiogram import Bot
@@ -61,6 +62,11 @@ class _Window:
     def record(self, now: float) -> None:
         self._sent.append(now)
 
+    def copy(self) -> "_Window":
+        clone = _Window(self.period)
+        clone._sent = self._sent.copy()
+        return clone
+
     def is_empty(self, now: float) -> bool:
         self._prune(now)
         return not self._sent
@@ -75,6 +81,7 @@ class _ChatState:
     paused_until: float = 0.0
     lowered_limit: int | None = None  # сниженный после 429 лимит группы; None — общий лимит групп
     lowered_at: float = 0.0
+    waiting: int = 0  # запросы и wait_ready, которые ещё ждут слота
 
 
 def _is_group(chat_id: int | str) -> bool:
@@ -109,8 +116,9 @@ class RateLimiter(BaseRequestMiddleware):
         if chat_id is None or not method.__api_method__.startswith(_LIMITED_PREFIXES):
             return await make_request(bot, method)
         state = self._chat_state(chat_id)
-        async with state.lock:
-            await self._wait_slot(state)
+        with _in_queue(state):
+            async with state.lock:
+                await self._wait_slot(state)
         try:
             return await make_request(bot, method)
         except TelegramRetryAfter as e:
@@ -123,7 +131,25 @@ class RateLimiter(BaseRequestMiddleware):
         Нужен, чтобы нарисовать сообщение уже после ожидания: тогда уходит свежее состояние, а не устаревшее.
         Слот может успеть занять другой запрос в этот чат — тогда сама отправка подождёт ещё.
         """
-        await self._wait_slot(self._chat_state(chat_id), reserve=False)
+        state = self._chat_state(chat_id)
+        with _in_queue(state):
+            await self._wait_slot(state, reserve=False)
+
+    def estimate_wait(self, chat_id: int | str) -> float:
+        """Через сколько секунд уйдёт новый запрос в чат, если перед ним — все уже ждущие запросы этого чата.
+
+        Ничего не занимает. Оценка для подсказки игроку: очереди других чатов в общем лимите бота не учитываются.
+        """
+        # Незнакомый чат оценивается по пустому состоянию — общие лимиты и паузы бота действуют и на него
+        state = self._chats.get(chat_id) or _ChatState(is_group=_is_group(chat_id))
+        now = self._clock()
+        windows = [(window.copy(), limit) for window, limit in self._windows(state, now)]
+        at = max(now, state.paused_until, self._global_paused_until)
+        for _ in range(state.waiting + 1):
+            at += max(0.0, *(window.wait_time(at, limit) for window, limit in windows))
+            for window, _ in windows:
+                window.record(at)
+        return at - now
 
     def group_limit_for(self, chat_id: int | str) -> int:
         """Текущий лимит запросов в минуту для группы с учётом снижения после 429."""
@@ -154,6 +180,7 @@ class RateLimiter(BaseRequestMiddleware):
             chat_id
             for chat_id, s in self._chats.items()
             if not s.lock.locked()
+            and s.waiting == 0
             and s.chat.is_empty(now)
             and s.group.is_empty(now)
             and s.paused_until <= now
@@ -162,13 +189,17 @@ class RateLimiter(BaseRequestMiddleware):
         for chat_id in idle:
             del self._chats[chat_id]
 
+    def _windows(self, state: _ChatState, now: float) -> list[tuple[_Window, int]]:
+        windows = [(self._global, GLOBAL_LIMIT), (state.chat, CHAT_LIMIT)]
+        if state.is_group:
+            windows.append((state.group, self._group_limit(state, now)))
+        return windows
+
     async def _wait_slot(self, state: _ChatState, *, reserve: bool = True) -> None:
         while True:
             now = self._clock()
             # Лимиты и паузы читаются на каждой проверке: их изменение действует и на уже ждущие запросы
-            windows = [(self._global, GLOBAL_LIMIT), (state.chat, CHAT_LIMIT)]
-            if state.is_group:
-                windows.append((state.group, self._group_limit(state, now)))
+            windows = self._windows(state, now)
             delay = max(
                 state.paused_until - now,
                 self._global_paused_until - now,
@@ -208,6 +239,15 @@ class RateLimiter(BaseRequestMiddleware):
                 " для всех чатов" if everyone else "",
                 self._group_limit(state, now) if state.is_group else "-",
             )
+
+
+@contextlib.contextmanager
+def _in_queue(state: _ChatState) -> Iterator[None]:
+    state.waiting += 1
+    try:
+        yield
+    finally:
+        state.waiting -= 1
 
 
 def find_rate_limiter(bot: Bot) -> RateLimiter | None:

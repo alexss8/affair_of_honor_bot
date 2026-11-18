@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import datetime
 import logging
 import sqlite3
@@ -7,7 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
+from aiogram.methods import AnswerCallbackQuery, EditMessageText
 from aiogram.types import Chat, ForumTopicCreated, Message, MessageEntity
 from helpers import (
     ACCEPT,
@@ -22,6 +24,7 @@ from helpers import (
     SURRENDER,
     TOKEN,
     TROLL,
+    FakeClock,
     build_dispatcher,
     cancel_timers,
     make_callback_update,
@@ -35,6 +38,7 @@ from bot.domain.models import DuelPhase, MoveKind, Zone
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.duel_cards import refresh_card
 from bot.telegram.handlers import router
+from bot.telegram.rate_limiter import RateLimiter
 from bot.telegram.ui import texts
 
 
@@ -614,3 +618,69 @@ async def test_restored_invite_expires_by_itself(bot_env):
 
     assert mock_edit.call_args.kwargs["text"] == texts.INVITE_EXPIRED
     assert engine2.invites == {}
+
+
+# --- 5.8: подсказка в ответе на ход, когда бот притормаживает ---
+
+SLOW_HINT = "⏳ Выбор принят! Telegram притормаживает бота — слишком много боёв сразу, карточка обновится через ~{} с"
+
+
+async def _limiter_paused_for(seconds: int) -> RateLimiter:
+    """Лимитер, у которого чат CHAT_ID на паузе после ответа 429."""
+    clock = FakeClock()
+    limiter = RateLimiter(clock=clock, sleep=clock.sleep)
+
+    async def flood(bot, method):
+        raise TelegramRetryAfter(method=method, message="Flood control exceeded", retry_after=seconds)
+
+    with contextlib.suppress(TelegramRetryAfter):
+        await limiter(flood, None, EditMessageText(chat_id=CHAT_ID, message_id=500, text="x"))
+    return limiter
+
+
+def _callback_answers(bot) -> list[AnswerCallbackQuery]:
+    return [c.args[0] for c in bot.call_args_list if c.args and isinstance(c.args[0], AnswerCallbackQuery)]
+
+
+async def _start_battle(dp, bot, engine) -> None:
+    make_invite(engine)
+    await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT))
+    bot.reset_mock()
+
+
+@pytest.mark.parametrize(("pause", "expected"), [(10, SLOW_HINT.format(10)), (3, SLOW_HINT.format(3))])
+async def test_move_reply_warns_when_chat_is_slowed_down(bot_env, pause, expected):
+    dp, bot, engine, _ = bot_env
+    await _start_battle(dp, bot, engine)
+    dp["limiter"] = await _limiter_paused_for(pause)
+
+    await dp.feed_update(bot, make_callback_update(2, ALICE, ATTACK_TOP))
+
+    [answer] = _callback_answers(bot)
+    assert answer.text == expected
+    assert not answer.show_alert
+
+
+@pytest.mark.parametrize("pause", [None, 2])
+async def test_move_reply_is_plain_without_noticeable_wait(bot_env, pause):
+    dp, bot, engine, _ = bot_env
+    await _start_battle(dp, bot, engine)
+    if pause is not None:
+        dp["limiter"] = await _limiter_paused_for(pause)
+
+    await dp.feed_update(bot, make_callback_update(2, ALICE, ATTACK_TOP))
+
+    [answer] = _callback_answers(bot)
+    assert answer.text == "Выбор принят! Ждем соперника."
+
+
+async def test_wrong_move_reply_has_no_slow_hint(bot_env):
+    dp, bot, engine, _ = bot_env
+    await _start_battle(dp, bot, engine)
+    dp["limiter"] = await _limiter_paused_for(10)
+
+    await dp.feed_update(bot, make_callback_update(2, BOB, ATTACK_TOP))
+
+    [answer] = _callback_answers(bot)
+    assert answer.text == "Сейчас твой ход ЗАЩИЩАТЬСЯ! Выбери один из блоков."
+    assert answer.show_alert
