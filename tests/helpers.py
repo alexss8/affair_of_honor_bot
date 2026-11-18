@@ -16,6 +16,7 @@ from bot.services.duel_service import DuelService
 from bot.telegram import invite_timer
 from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb, SurrenderCb
 from bot.telegram.handlers import router
+from bot.telegram.handlers.errors import ERROR_NOTICE_COOLDOWN_SEC
 from bot.telegram.rate_limiter import RateLimiter
 
 TOKEN = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
@@ -78,6 +79,7 @@ def build_dispatcher(
     dp["service"] = DuelService(repo=repo, logger=logger, top_limit=config.top_limit)
     dp["logger"] = logger
     dp["alerts"] = AlertThrottle()
+    dp["error_notices"] = AlertThrottle(cooldown_sec=ERROR_NOTICE_COOLDOWN_SEC)
     dp["started_at"] = time.time()
     dp["limiter"] = limiter or RateLimiter()
     dp.include_router(router)

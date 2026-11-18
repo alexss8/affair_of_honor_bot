@@ -13,6 +13,7 @@ from bot.services.duel_service import DuelService
 from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.handlers import router
+from bot.telegram.handlers.errors import ERROR_NOTICE_COOLDOWN_SEC
 from bot.telegram.rate_limiter import RateLimiter
 
 
@@ -44,6 +45,7 @@ async def main(config: Config) -> None:
     dp["service"] = service
     dp["logger"] = logger
     dp["alerts"] = AlertThrottle()
+    dp["error_notices"] = AlertThrottle(cooldown_sec=ERROR_NOTICE_COOLDOWN_SEC)
     dp["started_at"] = started_at
     dp["limiter"] = limiter
     dp.include_router(router)

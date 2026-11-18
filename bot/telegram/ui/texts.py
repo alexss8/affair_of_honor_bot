@@ -120,6 +120,9 @@ def render_outcome(finished: FinishedDuel, limit: int) -> str:
     return render_victory(finished.duel_id, winner, reason, finished.top, limit, icon=icon)
 
 
+ERROR_NOTICE = "⚠️ Что-то сломалось на нашей стороне. Попробуй ещё раз; если бой завис — /cancel"
+
+
 def render_slow_choice(wait_sec: float) -> str:
     """Ответ на ход, когда карточка обновится не сразу: у чата пауза после 429 или длинная очередь."""
     return (
