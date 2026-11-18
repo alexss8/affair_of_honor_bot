@@ -55,6 +55,8 @@
 
 Те же три проверки на каждый push и pull request запускает GitHub Actions (`.github/workflows/ci.yml`, Ubuntu, Python 3.12).
 
+Claude Code запускает `scripts/check.py` сам перед концом хода, если в рабочей копии изменены `.py`-файлы (Stop-хук `.claude/hooks/check_on_stop.py`). Запреты слоёв из раздела 1 (`domain` без `aiogram` и репозитория, `ui` без БД, обработчики — только через `safe_api`) проверяет `tests/test_architecture.py`.
+
 Новый функционал и исправления багов сопровождаются тестами; тест на баг должен падать на старом коде.
 
 ### План работ
