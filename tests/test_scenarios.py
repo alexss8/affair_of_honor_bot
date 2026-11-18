@@ -480,6 +480,27 @@ async def test_startup_replays_round_saved_with_both_choices(bot_env):
     cancel_timers(engine2)
 
 
+async def test_startup_card_render_does_not_eat_duel_time(bot_env):
+    """Пока карточка ждёт отрисовки после рестарта (лимитер, сеть), время боя стоит."""
+    dp, bot, engine, repo = bot_env
+    session = engine.start_duel(CHAT_ID, 750, 10, "@alice", 20, "@bob")
+    session.deadline = time.time() + 120
+    await dp.emit_shutdown(bot=bot, **dp.workflow_data)
+
+    async def slow_render(*args, **kwargs):
+        await asyncio.sleep(0.5)
+
+    dp2, _ = _restart(dp, engine, repo)
+    with (
+        patch.object(Message, "edit_text", new=AsyncMock(side_effect=slow_render)),
+        patch("bot.telegram.handlers.lifecycle.start_duel_timer") as start_timer,
+    ):
+        await dp2.emit_startup(bot=bot, **dp2.workflow_data)
+
+    remaining = start_timer.call_args.args[-1]
+    assert remaining == pytest.approx(120, abs=0.2)
+
+
 async def test_startup_drops_gone_cards_and_expired_invites(bot_env):
     dp, bot, engine, repo = bot_env
     engine.start_duel(CHAT_ID, 740, 10, "@alice", 20, "@bob")

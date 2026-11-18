@@ -78,10 +78,11 @@ async def _resume_duel(
     bot: Bot, session: DuelSession, engine: DuelEngine, service: DuelService, full_timeout_sec: float
 ) -> None:
     message = card_message(bot, session.chat_id, session.message_id)
+    # Остаток — до отрисовки: пока карточка ждёт лимитера, время боя стоит
+    remaining = full_timeout_sec if session.deadline is None else max(session.deadline - time.time(), 0)
     if not await refresh_card(message, session):
         engine.drop_session(session.chat_id, session.message_id)
         return
-    remaining = full_timeout_sec if session.deadline is None else max(session.deadline - time.time(), 0)
     start_duel_timer(session, message, engine, service, remaining)
 
 
