@@ -26,6 +26,9 @@ async def safe_answer_callback(cb: CallbackQuery, text: str | None = None, show_
         if "query is too old" in e.message or "query ID is invalid" in e.message:
             return
         logger.warning(f"Ошибка cb.answer: {e.message}")
+    except TelegramRetryAfter as e:
+        # No retry: by the time the flood wait ends the callback query has usually expired.
+        logger.warning(f"Лимит Telegram (429) при ответе на кнопку, ответ пропущен (ждать {e.retry_after} сек)")
     except (TelegramNetworkError, TelegramServerError):
         pass
 
@@ -88,21 +91,7 @@ async def safe_edit_text_by_id(
 
 
 async def safe_edit_markup(message: Message, reply_markup: InlineKeyboardMarkup | None = None) -> bool:
-    try:
-        await message.edit_reply_markup(reply_markup=reply_markup)
-        return True
-    except TelegramBadRequest as e:
-        msg = e.message.lower()
-        if "message is not modified" in msg:
-            return True
-        if any(err in msg for err in _EDIT_GONE_ERRORS):
-            return False
-        logger.warning(f"Ошибка BadRequest при обновлении кнопок: {e.message}")
-        return True
-    except (TelegramNotFound, TelegramForbiddenError):
-        return False
-    except (TelegramNetworkError, TelegramServerError):
-        return True
+    return await _edit_with_retry(lambda: message.edit_reply_markup(reply_markup=reply_markup), message.chat.id)
 
 
 async def safe_answer(
@@ -134,12 +123,20 @@ async def safe_answer(
 
 
 async def safe_reply(message: Message, text: str) -> None:
-    try:
-        await message.reply(text, parse_mode="HTML")
-    except TelegramBadRequest as e:
-        if "message to be replied not found" in e.message.lower():
-            await safe_answer(message, text)
-        else:
-            logger.warning(f"Ошибка при ответе на сообщение: {e.message}")
-    except (TelegramForbiddenError, TelegramNetworkError, TelegramServerError):
-        pass
+    """Отвечает на сообщение (Reply). Один повтор при 429; если исходное сообщение удалено — просто отправляет."""
+    for attempt in range(2):
+        try:
+            await message.reply(text, parse_mode="HTML")
+            return
+        except TelegramRetryAfter as e:
+            if attempt == 0:
+                logger.warning(f"Лимит Telegram (429) при ответе. Ждем {e.retry_after} сек...")
+                await asyncio.sleep(e.retry_after)
+        except TelegramBadRequest as e:
+            if "message to be replied not found" in e.message.lower():
+                await safe_answer(message, text)
+            else:
+                logger.warning(f"Ошибка при ответе на сообщение: {e.message}")
+            return
+        except (TelegramForbiddenError, TelegramNetworkError, TelegramServerError):
+            return

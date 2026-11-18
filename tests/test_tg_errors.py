@@ -12,7 +12,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, EditMessageReplyMarkup, EditMessageText, SendMessage
 from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
 from helpers import ATTACK_TOP, build_dispatcher
 
@@ -20,7 +20,14 @@ from bot.config import Config
 from bot.domain.engine import DuelEngine
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.handlers import router
-from bot.telegram.safe_api import safe_answer, safe_answer_callback, safe_edit_text, safe_edit_text_by_id, safe_reply
+from bot.telegram.safe_api import (
+    safe_answer,
+    safe_answer_callback,
+    safe_edit_markup,
+    safe_edit_text,
+    safe_edit_text_by_id,
+    safe_reply,
+)
 
 
 @pytest.fixture
@@ -199,6 +206,44 @@ async def test_safe_answer_retries_after_flood_control():
     )
     assert await safe_answer(target, "Hi") is sent
     assert target.answer.await_count == 2
+
+
+def _flood(method) -> TelegramRetryAfter:
+    return TelegramRetryAfter(method=method, message="Flood control exceeded", retry_after=0.01)
+
+
+async def test_safe_answer_callback_swallows_flood_control():
+    cb = MagicMock()
+    cb.answer = AsyncMock(side_effect=_flood(AnswerCallbackQuery(callback_query_id="1")))
+    await safe_answer_callback(cb, "Ok")
+    cb.answer.assert_awaited_once()
+
+
+@pytest.mark.parametrize("exc, expected_ok, _survive", EDIT_ERROR_CASES)
+async def test_safe_edit_markup_error_contract(exc, expected_ok, _survive):
+    msg = MagicMock()
+    msg.chat.id = -1001
+    msg.edit_reply_markup = AsyncMock(side_effect=exc)
+    assert await safe_edit_markup(msg) is expected_ok
+
+
+@pytest.mark.parametrize("second, expected_calls", [(True, 2), ("flood", 2)])
+async def test_safe_edit_markup_retries_once_after_flood_control(second, expected_calls):
+    msg = MagicMock()
+    msg.chat.id = -1001
+    flood = _flood(EditMessageReplyMarkup(chat_id=-1001, message_id=1))
+    msg.edit_reply_markup = AsyncMock(side_effect=[flood, flood if second == "flood" else second])
+    assert await safe_edit_markup(msg) is True
+    assert msg.edit_reply_markup.await_count == expected_calls
+
+
+@pytest.mark.parametrize("second", [None, "flood"])
+async def test_safe_reply_retries_once_after_flood_control(second):
+    msg = MagicMock()
+    flood = _flood(SendMessage(chat_id=-1001, text="x"))
+    msg.reply = AsyncMock(side_effect=[flood, flood if second == "flood" else second])
+    await safe_reply(msg, "Hi")
+    assert msg.reply.await_count == 2
 
 
 async def test_cancel_survives_flood_control_on_card_edit(env):
