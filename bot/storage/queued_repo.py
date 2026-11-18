@@ -17,6 +17,10 @@ class QueuedRepository:
     def init(self) -> int:
         return self.repo.init()
 
+    def close(self) -> None:
+        """Закрывает базу; вызывать после stop_worker(), иначе недописанная очередь потеряется."""
+        self.repo.close()
+
     def start_worker(self) -> None:
         if self._worker_task is None or self._worker_task.done():
             self._worker_task = asyncio.create_task(self._process_queue())

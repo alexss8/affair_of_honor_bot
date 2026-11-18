@@ -1,13 +1,23 @@
 import asyncio
 import logging
+import sqlite3
+from contextlib import closing
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from aiogram import Bot, Dispatcher
+from helpers import TOKEN
 
+import bot.__main__ as bot_main
+from bot.config import Config
 from bot.domain.engine import DuelEngine
-from bot.domain.models import ChoiceResult, DuelPhase, MoveKind, OutcomeKind, Zone
+from bot.domain.models import ChoiceResult, DuelPhase, MoveKind, OutcomeKind, Player, Zone
 from bot.services.duel_service import DuelService
+from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb
+from bot.telegram.handlers import router
 from bot.telegram.ui import texts
 
 LOGGER = logging.getLogger("test_logger")
@@ -55,6 +65,52 @@ def test_user_cache_and_lookup(repo):
     repo.save_user(chat_id=-1001, user_id=42, username="NewNick", first_name="Леголас")
     assert repo.get_user_by_username(-1001, "@newnick") == (42, "@newnick")
     assert repo.get_user_by_username(-1001, "@legolas_greenleaf") is None
+
+
+def test_close_checkpoints_wal_into_main_file(tmp_path):
+    db_path = tmp_path / "close.db"
+    repository = SQLiteRepository(str(db_path))
+    repository.init()
+    repository.record_duel(1, Player(10, "Alice", 5), Player(20, "Bob", 0))
+    assert Path(f"{db_path}-wal").exists()
+
+    repository.close()
+    repository.close()  # повторный вызов безопасен
+
+    assert not Path(f"{db_path}-wal").exists()
+    with closing(sqlite3.connect(db_path)) as conn:
+        assert conn.execute("SELECT nickname, wins FROM stats WHERE user_id = 10").fetchone() == ("Alice", 1)
+
+
+async def test_main_closes_database_after_flushing_queue(tmp_path):
+    """Штатная остановка: сначала дописывается фоновая очередь, затем закрывается соединение с базой."""
+    config = Config(bot_token=TOKEN, db_path=str(tmp_path / "main.db"), log_file=str(tmp_path / "main.log"))
+    calls = []
+    real_stop, real_close = QueuedRepository.stop_worker, SQLiteRepository.close
+
+    async def spy_stop(self):
+        await real_stop(self)
+        calls.append("stop_worker")
+
+    def spy_close(self):
+        calls.append("close")
+        real_close(self)
+
+    with (
+        patch.object(bot_main, "setup_logger", return_value=LOGGER),
+        patch.object(Bot, "set_my_commands", AsyncMock()),
+        patch.object(Bot, "delete_webhook", AsyncMock()),
+        patch.object(Dispatcher, "start_polling", AsyncMock()),
+        patch.object(QueuedRepository, "stop_worker", spy_stop),
+        patch.object(SQLiteRepository, "close", spy_close),
+    ):
+        try:
+            await bot_main.main(config)
+        finally:
+            router._parent_router = None
+
+    assert calls == ["stop_worker", "close"]
+    assert not Path(f"{config.db_path}-wal").exists()
 
 
 def test_suspended_state_roundtrip_freezes_time(repo, engine):

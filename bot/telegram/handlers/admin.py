@@ -14,10 +14,10 @@ router = Router(name="admin")
 
 
 @router.message(Command("status"), F.chat.type == "private")
-async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository, config: Config):
+async def cmd_status(message: Message, engine: DuelEngine, repo: BaseRepository, config: Config, started_at: float):
     if not config.admin_id or message.from_user.id != config.admin_id:
         return
-    days, hours, minutes = system_metrics.get_uptime()
+    days, hours, minutes = system_metrics.get_uptime(started_at)
     db_stats = repo.get_health_stats()
     ram_mb = system_metrics.get_process_ram_mb()
     disk_kb = system_metrics.get_disk_usage_kb(config.db_path, config.log_file)

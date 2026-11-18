@@ -26,6 +26,15 @@ class SQLiteRepository:
             self._conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
         return self._conn
 
+    def close(self) -> None:
+        """Закрывает соединение (повторный вызов безопасен).
+
+        При закрытии последнего соединения SQLite переносит WAL в основной файл и удаляет -wal.
+        """
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
     def init(self) -> int:
         """Настраивает соединение и применяет миграции схемы. Возвращает версию схемы."""
         conn = self._get_conn()

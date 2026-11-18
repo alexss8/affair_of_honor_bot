@@ -1,5 +1,6 @@
 import datetime
 import logging
+import time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,6 +12,7 @@ from bot.config import Config
 from bot.domain.engine import DuelEngine
 from bot.domain.models import Player
 from bot.logger import is_error_line, make_formatter
+from bot.services import system_metrics
 from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.handlers import router
@@ -81,6 +83,20 @@ def make_status_update(update_id: int, user_id: int, chat_type: str = "private")
         entities=[MessageEntity(type="bot_command", offset=0, length=7)],
     )
     return Update(update_id=update_id, message=msg)
+
+
+def test_get_uptime_counts_from_given_start():
+    assert system_metrics.get_uptime(1000.0, now=1000.0 + 90061) == (1, 1, 1)
+    assert system_metrics.get_uptime(0.0, now=59.0) == (0, 0, 0)
+
+
+async def test_status_uptime_counts_from_bot_start(health_env):
+    dp, bot, _, _ = health_env
+    dp["started_at"] = time.time() - 3661
+
+    await dp.feed_update(bot, make_status_update(1, user_id=777, chat_type="private"))
+
+    assert "0д 1ч 1м" in str(bot.call_args)
 
 
 def test_repository_health_stats(health_env):

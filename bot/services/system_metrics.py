@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 from bot.logger import BACKUP_COUNT, is_error_line
 
-START_TIME = time.time()
 _LAST_ERROR_MAX_CHARS = 180
 
 
@@ -18,9 +17,10 @@ class LogErrorsSummary:
     last_error: str | None  # сырая строка лога (не экранирована)
 
 
-def get_uptime(now: float | None = None) -> tuple[int, int, int]:
-    """Возвращает аптайм процесса как (дни, часы, минуты)."""
-    uptime_sec = int((now or time.time()) - START_TIME)
+def get_uptime(started_at: float, now: float | None = None) -> tuple[int, int, int]:
+    """Возвращает время работы бота с момента started_at как (дни, часы, минуты)."""
+    now = time.time() if now is None else now
+    uptime_sec = int(now - started_at)
     days, rem = divmod(uptime_sec, 86400)
     hours, rem = divmod(rem, 3600)
     minutes, _ = divmod(rem, 60)

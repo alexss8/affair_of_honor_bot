@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+import time
 
 from aiogram import Dispatcher
 from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
@@ -48,6 +49,7 @@ def build_dispatcher(config: Config, repo, engine: DuelEngine, logger: logging.L
     dp["service"] = DuelService(repo=repo, logger=logger, top_limit=config.top_limit)
     dp["logger"] = logger
     dp["alerts"] = AlertThrottle()
+    dp["started_at"] = time.time()
     dp.include_router(router)
     return dp
 

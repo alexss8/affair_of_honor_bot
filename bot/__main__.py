@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, BotCommandScopeAllGroupChats
@@ -15,6 +16,7 @@ from bot.telegram.handlers import router
 
 
 async def main(config: Config) -> None:
+    started_at = time.time()
     logger = setup_logger(config.log_file)
 
     sqlite_repo = SQLiteRepository(config.db_path)
@@ -33,6 +35,7 @@ async def main(config: Config) -> None:
     dp["service"] = service
     dp["logger"] = logger
     dp["alerts"] = AlertThrottle()
+    dp["started_at"] = started_at
     dp.include_router(router)
 
     try:
@@ -54,6 +57,7 @@ async def main(config: Config) -> None:
     finally:
         logger.info("Остановка бота, дописываем фоновую очередь...")
         await repo.stop_worker()
+        repo.close()
         await bot.session.close()
 
 
