@@ -41,7 +41,7 @@ DEFEND_BOT = move(MoveKind.DEFEND, Zone.BOT)
 def build_dispatcher(config: Config, repo, engine: DuelEngine, logger: logging.Logger) -> Dispatcher:
     """Dispatcher с теми же зависимостями, что и в bot/__main__.py.
 
-    После теста обязательно сбросить router._parent_router = None (см. AGENTS.md).
+    После теста обязательно сбросить router._parent_router = None (см. .claude/rules/tests.md).
     """
     dp = Dispatcher()
     dp["config"] = config

@@ -1,0 +1,14 @@
+---
+paths:
+  - "bot/telegram/duel_cards.py"
+  - "bot/telegram/handlers/battle.py"
+  - "bot/telegram/ui/**"
+  - "tests/test_duel_cards.py"
+---
+
+# Карточка боя
+
+- Все правки карточки боя идут через `refresh_card` / `announce_outcome` (`bot/telegram/duel_cards.py`) под `session.card_lock`, чтобы опоздавшая правка не перезаписала итог.
+- `refresh_card` — «последнее состояние побеждает»: если правка карточки уже идёт, вызов сразу возвращает `True`, а правящий после своей правки сверяет `session.card_revision` и отправляет одну правку со свежим состоянием; перед отрисовкой он ждёт свободного слота у лимитера (`wait_ready`), чтобы ушло состояние на момент отправки.
+- Итог боя (`announce_outcome`, `show_final_notice`) не сливается никогда.
+- Карточка боя редактируется на месте с одним маркером атакующего (`🔴 Атакует:`) и короткой фазой броска (`is_rolling=True`, `asyncio.sleep(0.8)`).
