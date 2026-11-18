@@ -10,8 +10,9 @@ line-length = 120
 extend-exclude = ["venv"]
 
 [tool.ruff.lint]
-# E/W — pycodestyle (PEP 8), F — pyflakes, I — сортировка импортов, B — bugbear, UP — современный синтаксис
-select = ["E", "F", "W", "I", "B", "UP"]
+# E/W — pycodestyle (PEP 8), F — pyflakes, I — сортировка импортов, B — bugbear, UP — современный синтаксис,
+# G — формат логирования (ленивый %s вместо f-строк)
+select = ["E", "F", "W", "I", "B", "UP", "G"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["bot"]

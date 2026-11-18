@@ -27,10 +27,16 @@ class DuelService:
             winner, loser = outcome.winner, outcome.loser
             duel_id = self.repo.record_duel(session.chat_id, winner, loser)
             self.logger.info(
-                f"Дуэль #{duel_id} завершена ({outcome.kind}, чат {session.chat_id}). "
-                f"Победитель: {winner.name} ({winner.hp} HP), проигравший: {loser.name} ({loser.hp} HP)"
+                "Дуэль #%s завершена (%s, чат %s). Победитель: %s (%s HP), проигравший: %s (%s HP)",
+                duel_id,
+                outcome.kind,
+                session.chat_id,
+                winner.name,
+                winner.hp,
+                loser.name,
+                loser.hp,
             )
         else:
-            self.logger.info(f"Дуэль в чате {session.chat_id} (msg {session.message_id}) завершилась ничьей.")
+            self.logger.info("Дуэль в чате %s (msg %s) завершилась ничьей.", session.chat_id, session.message_id)
         top = self.repo.get_top(session.chat_id, self.top_limit)
         return FinishedDuel(outcome=outcome, duel_id=duel_id, top=top)

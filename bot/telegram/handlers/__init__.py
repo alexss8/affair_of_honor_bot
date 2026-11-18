@@ -3,9 +3,11 @@
 from aiogram import Router
 
 from bot.telegram.handlers import admin, battle, common, errors, fallback, invite, lifecycle
-from bot.telegram.middlewares import cache_user_middleware
+from bot.telegram.middlewares import cache_user_middleware, log_context_middleware
 
 router = Router(name="root")
+for observer in (router.message, router.callback_query, router.my_chat_member):
+    observer.outer_middleware(log_context_middleware)
 router.message.outer_middleware(cache_user_middleware)
 router.callback_query.outer_middleware(cache_user_middleware)
 # fallback — строго последним: ловит нажатия, которые не подошли ни одному роутеру выше.

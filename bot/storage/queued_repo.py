@@ -73,7 +73,7 @@ class QueuedRepository:
                 if users_to_save:
                     self.repo.save_users_batch(users_to_save)
             except Exception as e:
-                self.logger.error(f"Ошибка фоновой пакетной записи в БД: {e}")
+                self.logger.error("Ошибка фоновой пакетной записи в БД: %s", e)
             finally:
                 for _ in batch:
                     self.queue.task_done()

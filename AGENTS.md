@@ -15,9 +15,10 @@
   - `bot/telegram/handlers/` — только маршрутизация команд/коллбэков, валидация прав игрока и склейка `engine`, `repo` и `ui`. По модулю на тему: `common` (help/top/приветствие), `invite` (вызов и ответ на него), `battle` (ходы, сдача, `/cancel`), `admin` (`/status`), `errors`, `lifecycle` (при остановке сохраняет активные бои и вызовы в БД и ставит карточки на паузу, при старте восстанавливает их; если снимок не сохранился — помечает карточки прерванными), `fallback` (устаревшие кнопки, подключается последним). Корневой `router` в `handlers/__init__.py` подключает middleware и все роутеры.
   - `bot/telegram/callbacks.py` — `CallbackData`-фабрики кнопок; не склеивайте `callback_data` строками вручную.
   - `bot/telegram/duel_cards.py` — все правки карточки боя идут через `refresh_card` / `announce_outcome` под `session.card_lock`, чтобы опоздавшая правка не перезаписала итог.
-  - `bot/telegram/middlewares.py` — кэш участников чата; `bot/telegram/duel_timer.py` — таймаут дуэли.
+  - `bot/telegram/middlewares.py` — кэш участников чата и контекст логов (`chat_id` обрабатываемого апдейта); `bot/telegram/duel_timer.py` — таймаут дуэли.
 - **Настройки:** `bot/config.py` — единственное место чтения `.env`. Новая переменная: поле в `Config`, проверка в `load_config` (ошибки копятся в список и выводятся разом, `ConfigError` → выход с кодом 78), строка в `.env.example` и вопрос в `scripts/setup_env.py` (тест сверяет мастер с `.env.example`).
 - **Стиль кода:** ruff (`pyproject.toml`, длина строки 120). Перед коммитом: `ruff check .` и `ruff format .`.
+- **Логи:** только ленивый формат `logger.info("... %s", x)` — f-строки в логах ловит правило ruff `G`. Чат в записи (`chat=<id>`) подставляет форматтер из `bot/logger.py` сам — в текст его не дописывайте; вне обработки апдейта (старт, остановка) нужен контекст — `with log_chat(chat_id):`. Маркер `| ERROR |`, по которому `/status` считает ошибки, не меняйте.
 - **Безопасность Telegram API:** Никогда не вызывайте `message.answer`, `message.reply`, `message.edit_text`, `message.edit_reply_markup`, `bot.edit_message_text`, `bot.get_chat` или `cb.answer` напрямую в `bot/telegram/handlers/`. Всегда используйте безопасные обертки из `bot/telegram/safe_api.py` (`safe_answer`, `safe_reply`, `safe_edit_text`, `safe_edit_text_by_id`, `safe_edit_markup`, `safe_get_chat`, `safe_answer_callback`), которые перехватывают `TelegramBadRequest`, `TelegramRetryAfter` и сетевые сбои.
 - **Защита от XSS/HTML-инъекций:** Любые имена пользователей из Telegram перед вставкой в HTML-сообщения обязаны проходить через `texts.escape_nick()` / `texts.format_nick()` или `html.escape()`.
 
@@ -73,6 +74,7 @@
 - `test_scenarios.py` — сквозные сценарии через `aiogram.Dispatcher` (вызов, отзыв вызова, сдача, отмена, двойное нажатие «Принять», ник инициатора из кэша, пауза карточек при остановке и продолжение боя после рестарта, фолбэк «бой прерван»).
 - `test_tg_errors.py` — проверка контракта `safe_api.py` на все ошибки Telegram API и очистка зависших сессий при удалении сообщения админом.
 - `test_health.py` — проверка метрик БД и прав доступа к админ-команде `/status`; лог для теста пишется настоящим форматтером из `bot/logger.py`.
+- `test_log_context.py` — контекст в логах: запись внутри апдейта и ошибка обработчика несут `chat=<id>`, после апдейта контекст не протекает (`chat=-`).
 - `test_alerts.py` — ограничение частоты алертов админу: ключ «одинаковой» ошибки, интервал и счётчик повторов, обработчик ошибок шлёт одинаковую ошибку раз за интервал.
 - `test_unicode.py` — любые символы в именах (кириллица, эмодзи, RTL, иероглифы, SQL и HTML в тексте) проходят через рейтинг, кэш ников и снимок боёв без искажений; битый символ (одиночный суррогат) не роняет запись и не губит пачку фоновой записи ников.
 - `helpers.py` — общие хелперы тестов: `build_dispatcher`, `make_invite`, апдейты, готовые `callback_data` (`ACCEPT`, `ATTACK_TOP`, ...).

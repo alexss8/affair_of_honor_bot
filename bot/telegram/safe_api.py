@@ -25,10 +25,10 @@ async def safe_answer_callback(cb: CallbackQuery, text: str | None = None, show_
     except TelegramBadRequest as e:
         if "query is too old" in e.message or "query ID is invalid" in e.message:
             return
-        logger.warning(f"Ошибка cb.answer: {e.message}")
+        logger.warning("Ошибка cb.answer: %s", e.message)
     except TelegramRetryAfter as e:
         # No retry: by the time the flood wait ends the callback query has usually expired.
-        logger.warning(f"Лимит Telegram (429) при ответе на кнопку, ответ пропущен (ждать {e.retry_after} сек)")
+        logger.warning("Лимит Telegram (429) при ответе на кнопку, ответ пропущен (ждать %s сек)", e.retry_after)
     except (TelegramNetworkError, TelegramServerError):
         pass
 
@@ -44,21 +44,21 @@ async def _edit_with_retry(edit: Callable[[], Awaitable[Any]], chat_id: int) -> 
             await edit()
             return True
         except TelegramRetryAfter as e:
-            logger.warning(f"Лимит Telegram (429). Ждем {e.retry_after} сек...")
+            logger.warning("Лимит Telegram (429). Ждем %s сек...", e.retry_after)
             await asyncio.sleep(e.retry_after)
         except TelegramBadRequest as e:
             msg = e.message.lower()
             if "message is not modified" in msg:
                 return True
             if any(err in msg for err in _EDIT_GONE_ERRORS):
-                logger.warning(f"Сообщение дуэли удалено или недоступно в чате {chat_id}")
+                logger.warning("Сообщение дуэли удалено или недоступно в чате %s", chat_id)
                 return False
-            logger.error(f"Ошибка BadRequest при редактировании: {e.message}")
+            logger.error("Ошибка BadRequest при редактировании: %s", e.message)
             return True
         except (TelegramNotFound, TelegramForbiddenError):
             return False
         except (TelegramNetworkError, TelegramServerError) as e:
-            logger.warning(f"Сетевой сбой Telegram при редактировании: {e}")
+            logger.warning("Сетевой сбой Telegram при редактировании: %s", e)
             await asyncio.sleep(1)
     return True
 
@@ -111,13 +111,13 @@ async def safe_answer(
             return await target.answer(text, **kwargs)
         except TelegramRetryAfter as e:
             if attempt == 0:
-                logger.warning(f"Лимит Telegram (429) при отправке. Ждем {e.retry_after} сек...")
+                logger.warning("Лимит Telegram (429) при отправке. Ждем %s сек...", e.retry_after)
                 await asyncio.sleep(e.retry_after)
         except TelegramBadRequest as e:
-            logger.warning(f"Ошибка при отправке сообщения: {e.message}")
+            logger.warning("Ошибка при отправке сообщения: %s", e.message)
             return None
         except (TelegramForbiddenError, TelegramNetworkError, TelegramServerError) as e:
-            logger.warning(f"Не удалось отправить сообщение: {e}")
+            logger.warning("Не удалось отправить сообщение: %s", e)
             return None
     return None
 
@@ -130,13 +130,13 @@ async def safe_reply(message: Message, text: str) -> None:
             return
         except TelegramRetryAfter as e:
             if attempt == 0:
-                logger.warning(f"Лимит Telegram (429) при ответе. Ждем {e.retry_after} сек...")
+                logger.warning("Лимит Telegram (429) при ответе. Ждем %s сек...", e.retry_after)
                 await asyncio.sleep(e.retry_after)
         except TelegramBadRequest as e:
             if "message to be replied not found" in e.message.lower():
                 await safe_answer(message, text)
             else:
-                logger.warning(f"Ошибка при ответе на сообщение: {e.message}")
+                logger.warning("Ошибка при ответе на сообщение: %s", e.message)
             return
         except (TelegramForbiddenError, TelegramNetworkError, TelegramServerError):
             return

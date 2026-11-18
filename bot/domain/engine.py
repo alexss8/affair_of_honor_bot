@@ -112,7 +112,7 @@ class DuelEngine:
             last_log=START_LOG,
         )
         self.sessions[(chat_id, msg_id)] = session
-        self.logger.info(f"Начата дуэль в чате {chat_id}: {p1.name} ({p1.id}) vs {p2.name} ({p2.id})")
+        self.logger.info("Начата дуэль в чате %s: %s (%s) vs %s (%s)", chat_id, p1.name, p1.id, p2.name, p2.id)
         return session
 
     def drop_session(self, chat_id: int, msg_id: int) -> DuelSession | None:
@@ -127,7 +127,7 @@ class DuelEngine:
         for session in list(self.sessions.values()):
             if session.chat_id == chat_id and session.get_player(user_id) is not None:
                 self._finish(session)
-                self.logger.info(f"Дуэль в чате {chat_id} (msg {session.message_id}) отменена игроком {user_id}")
+                self.logger.info("Дуэль в чате %s (msg %s) отменена игроком %s", chat_id, session.message_id, user_id)
                 return session
         return None
 
@@ -143,7 +143,7 @@ class DuelEngine:
             self._finish(session)
         self.invites.clear()
         if sessions or invites:
-            self.logger.info(f"Прервано при остановке: боёв {len(sessions)}, вызовов {len(invites)}")
+            self.logger.info("Прервано при остановке: боёв %s, вызовов %s", len(sessions), len(invites))
         return sessions, invites
 
     def restore(self, sessions: list[DuelSession], invites: list[DuelInvite]) -> None:
@@ -158,7 +158,7 @@ class DuelEngine:
         for invite in invites:
             self.invites[(invite.chat_id, invite.message_id)] = invite
         if sessions or invites:
-            self.logger.info(f"Восстановлено после рестарта: боёв {len(sessions)}, вызовов {len(invites)}")
+            self.logger.info("Восстановлено после рестарта: боёв %s, вызовов %s", len(sessions), len(invites))
 
     def _finish(self, session: DuelSession) -> None:
         session.phase = DuelPhase.FINISHED

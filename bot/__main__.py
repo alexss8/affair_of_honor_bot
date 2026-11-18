@@ -51,7 +51,7 @@ async def main(config: Config) -> None:
 
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info(
-            f"Бот запущен! Настройки: {config.default_hp} HP, топ-{config.top_limit}. Схема БД: v{schema_version}."
+            "Бот запущен! Настройки: %s HP, топ-%s. Схема БД: v%s.", config.default_hp, config.top_limit, schema_version
         )
         await dp.start_polling(bot)
     finally:
