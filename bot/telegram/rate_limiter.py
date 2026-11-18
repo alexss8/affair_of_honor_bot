@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 from aiogram import Bot
 from aiogram.client.session.middlewares.base import BaseRequestMiddleware, NextRequestMiddlewareType
+from aiogram.client.session.middlewares.manager import RequestMiddlewareManager
 from aiogram.exceptions import TelegramRetryAfter
 from aiogram.methods import Response, TelegramMethod
 from aiogram.methods.base import TelegramType
@@ -116,6 +117,14 @@ class RateLimiter(BaseRequestMiddleware):
             self._on_flood(chat_id, state, method.__api_method__, e.retry_after)
             raise  # повтор запроса — дело вызывающего кода (safe_api)
 
+    async def wait_ready(self, chat_id: int | str) -> None:
+        """Ждёт, пока у чата появится свободный слот, не занимая его.
+
+        Нужен, чтобы нарисовать сообщение уже после ожидания: тогда уходит свежее состояние, а не устаревшее.
+        Слот может успеть занять другой запрос в этот чат — тогда сама отправка подождёт ещё.
+        """
+        await self._wait_slot(self._chat_state(chat_id), reserve=False)
+
     def group_limit_for(self, chat_id: int | str) -> int:
         """Текущий лимит запросов в минуту для группы с учётом снижения после 429."""
         state = self._chats.get(chat_id)
@@ -153,7 +162,7 @@ class RateLimiter(BaseRequestMiddleware):
         for chat_id in idle:
             del self._chats[chat_id]
 
-    async def _wait_slot(self, state: _ChatState) -> None:
+    async def _wait_slot(self, state: _ChatState, *, reserve: bool = True) -> None:
         while True:
             now = self._clock()
             # Лимиты и паузы читаются на каждой проверке: их изменение действует и на уже ждущие запросы
@@ -166,8 +175,9 @@ class RateLimiter(BaseRequestMiddleware):
                 *(window.wait_time(now, limit) for window, limit in windows),
             )
             if delay <= 0:
-                for window, _ in windows:
-                    window.record(now)
+                if reserve:
+                    for window, _ in windows:
+                        window.record(now)
                 return
             await self._sleep(delay)
 
@@ -198,3 +208,11 @@ class RateLimiter(BaseRequestMiddleware):
                 " для всех чатов" if everyone else "",
                 self._group_limit(state, now) if state.is_group else "-",
             )
+
+
+def find_rate_limiter(bot: Bot) -> RateLimiter | None:
+    """Лимитер в цепочке сессии бота; None, если бот без лимитера (например, подменённый в тестах)."""
+    middlewares = getattr(getattr(bot, "session", None), "middleware", None)
+    if not isinstance(middlewares, RequestMiddlewareManager):
+        return None
+    return next((m for m in middlewares if isinstance(m, RateLimiter)), None)

@@ -74,6 +74,8 @@ class DuelSession:
     timeout_task: asyncio.Task | None = field(default=None, repr=False, compare=False)
     # Сериализует правки карточки боя: правка, начатая раньше, не перезапишет более свежее состояние.
     card_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
+    # Растёт при каждом запросе перерисовки: правящий карточку видит, что состояние изменилось за время его правки.
+    card_revision: int = field(default=0, repr=False, compare=False)
 
     @property
     def is_active(self) -> bool:
