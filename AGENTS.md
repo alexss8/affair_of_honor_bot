@@ -56,11 +56,11 @@
 После любых правок в коде обязательно запускайте полный набор тестов (все тесты должны проходить):
 
 ```bash
-py -3.12 -m pytest -v
-py -3.12 -m ruff check .
-py -3.12 -m ruff format --check .
+.venv\Scripts\python -m pytest -v
+.venv\Scripts\python -m ruff check .
+.venv\Scripts\python -m ruff format --check .
 ```
-*(На Linux/Ubuntu: `pytest -v`. Зависимости для тестов: `pip install -r requirements-dev.txt`.)*
+*(Окружение `.venv` на Python 3.12 с зависимостями из `requirements-dev.txt` создаёт `py -3.12 scripts/setup_dev.py`; после изменения requirements — запустить его ещё раз. На Linux/Ubuntu: `.venv/bin/python -m pytest -v`.)*
 
 Новый функционал и исправления багов сопровождаются тестами; тест на баг должен падать на старом коде.
 
@@ -75,6 +75,7 @@ py -3.12 -m ruff format --check .
 - `test_alerts.py` — ограничение частоты алертов админу: ключ «одинаковой» ошибки, интервал и счётчик повторов, обработчик ошибок шлёт одинаковую ошибку раз за интервал.
 - `helpers.py` — общие хелперы тестов: `build_dispatcher`, `make_invite`, апдейты, готовые `callback_data` (`ACCEPT`, `ATTACK_TOP`, ...).
 - `test_setup_env.py` — мастер `scripts/setup_env.py` записывает в `.env` все настройки (сверяется с `.env.example`).
+- `test_setup_dev.py` — `scripts/setup_dev.py`: отказ на Python ниже 3.12, создание `.venv` и установка зависимостей (пустой файл зависимостей, без сети), повторный запуск не пересоздаёт окружение, `--recreate` пересоздаёт и не удаляет папку без `pyvenv.cfg`.
 - `test_config.py` — проверка `.env` при старте: значения по умолчанию, ошибки по каждой переменной, все ошибки сразу без утечки токена, выход `python -m bot` с кодом 78.
 - `test_phrases.py` — валидация пула реплик в `bot/domain/phrases.py`.
 - `test_migrations.py` — миграции схемы: новая база, старая база без версии (данные сохраняются), повторный запуск, откат упавшей миграции, отказ при базе новее кода.

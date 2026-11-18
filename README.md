@@ -29,20 +29,21 @@
 
 **Требования:** Python 3.12+
 
-1. **Установите зависимости:**
+1. **Создайте окружение `.venv` и установите зависимости:**
    ```bash
-   pip install -r requirements.txt
+   py -3.12 scripts/setup_dev.py
    ```
+   *(На Linux/macOS: `python3.12 scripts/setup_dev.py`. Повторный запуск доустанавливает зависимости, `--recreate` пересоздаёт окружение.)*
 
-2. **Настройте окружение:**
+2. **Настройте `.env`:**
    ```bash
-   python scripts/setup_env.py
+   .venv\Scripts\python scripts/setup_env.py
    ```
-   *(Интерактивный мастер запросит `BOT_TOKEN` от `@BotFather` и создаст файл `.env`).*
+   *(Интерактивный мастер запросит `BOT_TOKEN` от `@BotFather` и создаст файл `.env`. На Linux/macOS — `.venv/bin/python`.)*
 
 3. **Запустите бота:**
    ```bash
-   python -m bot
+   .venv\Scripts\python -m bot
    ```
 
 ---
@@ -64,7 +65,7 @@ bot/
     ├── duel_timer.py      # таймаут дуэли
     ├── handlers/          # common, invite, battle, admin, errors, fallback
     └── ui/                # texts, keyboards
-scripts/                   # deploy.sh, setup_env.py
+scripts/                   # deploy.sh, update.sh, backup_db.py, setup_env.py, setup_dev.py
 tests/
 ```
 
@@ -90,9 +91,9 @@ tests/
 - **Деплой на сервер (Ubuntu 22.04):** пошаговая инструкция по установке и обновлению описана в **[DEPLOY.md](DEPLOY.md)**.
 - **Запуск тестов:**
   ```bash
-  pip install -r requirements-dev.txt
-  pytest -v
+  .venv\Scripts\python -m pytest -v
   ```
+  *(Окружение `.venv` с зависимостями для тестов создаёт `scripts/setup_dev.py`, см. «Быстрый старт».)*
 
 ---
 
