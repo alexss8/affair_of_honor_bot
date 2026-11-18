@@ -13,6 +13,14 @@ from bot.services.duel_service import DuelService
 from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.handlers import router
+from bot.telegram.rate_limiter import RateLimiter
+
+
+def create_bot(token: str) -> Bot:
+    """Бот, все запросы которого идут через лимитер."""
+    bot = Bot(token=token)
+    bot.session.middleware(RateLimiter())
+    return bot
 
 
 async def main(config: Config) -> None:
@@ -27,7 +35,7 @@ async def main(config: Config) -> None:
     engine = DuelEngine(logger=logger, default_hp=config.default_hp, invite_ttl_sec=config.invite_ttl_sec)
     service = DuelService(repo=repo, logger=logger, top_limit=config.top_limit)
 
-    bot = Bot(token=config.bot_token)
+    bot = create_bot(config.bot_token)
     dp = Dispatcher()
     dp["config"] = config
     dp["repo"] = repo
