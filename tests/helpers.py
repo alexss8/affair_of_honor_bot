@@ -1,5 +1,6 @@
-"""Общие хелперы тестов: сборка Dispatcher, апдейты и callback_data."""
+"""Общие хелперы тестов: сборка Dispatcher, апдейты и callback_data, подменённые часы лимитера."""
 
+import asyncio
 import datetime
 import logging
 import time
@@ -36,6 +37,30 @@ ATTACK_TOP = move(MoveKind.ATTACK, Zone.TOP)
 ATTACK_BOT = move(MoveKind.ATTACK, Zone.BOT)
 DEFEND_TOP = move(MoveKind.DEFEND, Zone.TOP)
 DEFEND_BOT = move(MoveKind.DEFEND, Zone.BOT)
+
+
+class FakeClock:
+    """Часы и sleep для лимитера: sleep мгновенно сдвигает время вперёд.
+
+    Лимитер считает паузу от текущего времени перед каждым sleep, поэтому одновременные паузы не складываются.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps = 0
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, delay: float) -> None:
+        self.sleeps += 1
+        self.now += delay
+        await asyncio.sleep(0)
+
+
+def max_in_window(times: list[float], period: float) -> int:
+    """Наибольшее число отправок в любом полуоткрытом окне [t, t + period)."""
+    return max(sum(1 for u in times if t <= u < t + period) for t in times)
 
 
 def build_dispatcher(config: Config, repo, engine: DuelEngine, logger: logging.Logger) -> Dispatcher:

@@ -9,6 +9,7 @@ import pytest
 from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, GetChat, GetUpdates, SendMessage, SetMyCommands
+from helpers import FakeClock, max_in_window
 
 from bot.__main__ import create_bot
 from bot.logger import make_formatter
@@ -27,25 +28,6 @@ from bot.telegram.safe_api import safe_edit_text
 
 GROUP = -100123
 OTHER_GROUP = -100456
-
-
-class FakeClock:
-    """Часы и sleep для лимитера: sleep мгновенно сдвигает время вперёд.
-
-    Лимитер считает паузу от текущего времени перед каждым sleep, поэтому одновременные паузы не складываются.
-    """
-
-    def __init__(self) -> None:
-        self.now = 0.0
-        self.sleeps = 0
-
-    def __call__(self) -> float:
-        return self.now
-
-    async def sleep(self, delay: float) -> None:
-        self.sleeps += 1
-        self.now += delay
-        await asyncio.sleep(0)
 
 
 @pytest.fixture
@@ -73,11 +55,6 @@ async def send_all(limiter, clock, methods) -> list:
     request = make_sender(clock, log)
     await asyncio.gather(*(limiter(request, None, m) for m in methods))
     return log
-
-
-def max_in_window(times: list[float], period: float) -> int:
-    """Наибольшее число отправок в любом полуоткрытом окне [t, t + period)."""
-    return max(sum(1 for u in times if t <= u < t + period) for t in times)
 
 
 def edit(chat_id: int, n: int = 0) -> EditMessageText:
@@ -301,3 +278,44 @@ async def test_safe_api_does_not_log_flood_itself(caplog):
 
     assert msg.edit_text.await_count == 2
     assert not [r for r in caplog.records if "429" in r.getMessage()]
+
+
+# --- 5.7: много одновременных дуэлей ---
+
+
+async def test_concurrent_duels_stay_within_all_budgets(limiter, clock):
+    groups = [-100000 - i for i in range(30)]
+    privates = [1000 + i for i in range(5)]
+    methods = [edit(g, n) for n in range(45) for g in groups]
+    methods += [SendMessage(chat_id=p, text=str(n)) for n in range(10) for p in privates]
+
+    log = await send_all(limiter, clock, methods)
+
+    assert len(log) == len(methods)
+    assert max_in_window([t for t, _ in log], GLOBAL_PERIOD_SEC) == GLOBAL_LIMIT  # 30 групп хотят больше 25/с
+    for chat_id in groups + privates:
+        times = [t for t, m in log if m.chat_id == chat_id]
+        assert max_in_window(times, CHAT_PERIOD_SEC) <= CHAT_LIMIT
+        if chat_id in groups:  # здесь упирается общий лимит; сам лимит группы — test_group_limit_per_minute
+            assert max_in_window(times, GROUP_PERIOD_SEC) <= GROUP_LIMIT
+
+
+async def test_first_group_flood_throttles_other_groups_in_flight(limiter, clock):
+    log: list = []
+    request = flooding_sender(clock, log, {GROUP: [1]})
+    queued = [asyncio.create_task(limiter(request, None, edit(OTHER_GROUP, i))) for i in range(60)]
+    while len(log) <= GROUP_FALLBACK_LIMIT:  # вторая группа уже отправила больше 20 правок
+        await asyncio.sleep(0)
+    sleeps = clock.sleeps
+    while clock.sleeps == sleeps:  # и её следующий запрос уже ждёт слота
+        await asyncio.sleep(0)
+
+    await call_ignoring_flood(limiter, request, edit(GROUP))
+    sent_before_flood = len(log)
+    await asyncio.gather(*queued)
+
+    times = [t for t, _ in log]  # в журнал попадает только вторая группа: запрос первой ответил 429
+    assert len(times) == 60
+    after_flood = times[sent_before_flood:]
+    for t in after_flood:  # каждая отправка после 429 укладывается в 20 за минуту, считая и отправленные до него
+        assert sum(1 for u in times if t - GROUP_PERIOD_SEC < u <= t) <= GROUP_FALLBACK_LIMIT

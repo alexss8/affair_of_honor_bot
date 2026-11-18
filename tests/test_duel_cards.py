@@ -8,12 +8,13 @@ import pytest
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import EditMessageText
+from helpers import FakeClock, max_in_window
 
 from bot.domain.engine import DuelEngine
 from bot.services.duel_service import DuelService
 from bot.storage.sqlite_repo import SQLiteRepository
-from bot.telegram.duel_cards import announce_outcome, refresh_card
-from bot.telegram.rate_limiter import CHAT_LIMIT, RateLimiter
+from bot.telegram.duel_cards import announce_outcome, card_message, refresh_card
+from bot.telegram.rate_limiter import CHAT_LIMIT, CHAT_PERIOD_SEC, GROUP_LIMIT, GROUP_PERIOD_SEC, RateLimiter
 from bot.telegram.ui import texts
 
 CHAT = -100123
@@ -122,6 +123,19 @@ async def test_outcome_is_sent_last_and_never_merged(engine, session, service):
     assert len(card.sent) == 2  # первая правка и итог; слитая правка после итога не отправлена
 
 
+async def test_outcome_waits_for_inflight_edit(engine, session, service):
+    card = SlowCard()
+    first = await started(refresh_card(card.message, session))
+
+    finish = await started(announce_outcome(card.message, engine.surrender(session, session.p1), service))
+    assert len(card.sent) == 1  # правка боя ещё в сети — итог не отправлен, иначе она его перезапишет
+    card.release.set()
+    await asyncio.gather(first, finish)
+
+    assert len(card.sent) == 2
+    assert "ДУЭЛЬ #1 ОКОНЧЕНА" in card.sent[-1]
+
+
 async def test_deleted_card_reported_by_editor_only(session):
     card = SlowCard()
     card.first_error = TelegramBadRequest(
@@ -173,3 +187,53 @@ async def test_card_is_rendered_after_waiting_for_chat_slot(session):
     assert card.sent == [texts.render_battle(session)]
     assert "Bob: ❤️🖤" in card.sent[0]
     await bot.session.close()
+
+
+async def test_outcomes_survive_skipped_edits_under_limits(engine, service):
+    clock = FakeClock()
+    limiter = RateLimiter(clock=clock, sleep=clock.sleep)
+    bot = Bot("123456:TEST")
+    bot.session.middleware(limiter)
+    log: list[tuple[float, EditMessageText]] = []
+
+    async def network(bot, method, timeout=None):
+        log.append((clock.now, method))
+        await asyncio.sleep(0)
+        return True
+
+    bot.session.make_request = network
+    duels = 10
+    rounds = 4
+    round_edits_sent: list[int] = []
+    late_was_waiting: list[bool] = []
+
+    async def play(i: int) -> None:
+        message_id = i + 1
+        session = engine.start_duel(CHAT, message_id, 1000 + 2 * i, f"A{i}", 1001 + 2 * i, f"B{i}")
+        message = card_message(bot, CHAT, message_id)
+        edits = []
+        for hp in range(rounds, 0, -1):  # ходы быстрее, чем карточка успевает обновиться
+            session.p2.hp = hp
+            edits.append(asyncio.create_task(refresh_card(message, session)))
+            await asyncio.sleep(0)
+        assert all(await asyncio.gather(*edits))
+        round_edits_sent.append(sum(m.message_id == message_id for _, m in log))
+
+        late = asyncio.create_task(refresh_card(message, session))  # последний ход: правка ждёт слота, бой кончается
+        await asyncio.sleep(0)
+        late_was_waiting.append(not late.done())
+        await announce_outcome(message, engine.surrender(session, session.p2), service)
+        assert await late
+
+    await asyncio.gather(*(play(i) for i in range(duels)))
+    await bot.session.close()
+
+    assert sum(round_edits_sent) < duels * rounds  # часть промежуточных правок слита
+    assert any(late_was_waiting)
+    for message_id in range(1, duels + 1):
+        texts_sent = [m.text for _, m in log if m.message_id == message_id]
+        assert "ОКОНЧЕНА" in texts_sent[-1]
+        assert sum("ОКОНЧЕНА" in t for t in texts_sent) == 1
+    times = [t for t, _ in log]
+    assert max_in_window(times, CHAT_PERIOD_SEC) <= CHAT_LIMIT
+    assert max_in_window(times, GROUP_PERIOD_SEC) <= GROUP_LIMIT
