@@ -1,8 +1,19 @@
 import os
+import re
 import sqlite3
 
 from bot.domain.models import DuelInvite, DuelSession, Player, PlayerStats, Zone
 from bot.storage.migrations import migrate
+
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _text(value: str | None) -> str | None:
+    """Текст, который можно записать в базу: одиночные суррогаты (их нельзя закодировать в UTF-8) → «�».
+
+    Любые нормальные символы (кириллица, эмодзи, RTL и т.д.) не меняются.
+    """
+    return None if value is None else _LONE_SURROGATE.sub("\ufffd", value)
 
 
 class SQLiteRepository:
@@ -31,7 +42,7 @@ class SQLiteRepository:
     def save_users_batch(self, users: list[tuple[int, int, str | None, str]]) -> None:
         if not users:
             return
-        rows = [(cid, uid, uname.lower() if uname else None, fname) for cid, uid, uname, fname in users]
+        rows = [(cid, uid, _text(uname.lower()) if uname else None, _text(fname)) for cid, uid, uname, fname in users]
         conn = self._get_conn()
         with conn:
             conn.executemany(
@@ -67,7 +78,7 @@ class SQLiteRepository:
                     "INSERT INTO stats (chat_id, user_id, nickname, wins, losses) VALUES (?, ?, ?, ?, ?) "
                     "ON CONFLICT(chat_id, user_id) DO UPDATE SET "
                     "wins = wins + ?, losses = losses + ?, nickname = excluded.nickname",
-                    (chat_id, player.id, player.name, w_inc, l_inc, w_inc, l_inc),
+                    (chat_id, player.id, _text(player.name), w_inc, l_inc, w_inc, l_inc),
                 )
             return duel_id
 
@@ -86,16 +97,16 @@ class SQLiteRepository:
                 s.chat_id,
                 s.message_id,
                 s.p1.id,
-                s.p1.name,
+                _text(s.p1.name),
                 s.p1.hp,
                 s.p1.choice,
                 s.p2.id,
-                s.p2.name,
+                _text(s.p2.name),
                 s.p2.hp,
                 s.p2.choice,
                 s.attacker_id,
                 s.max_hp,
-                s.last_log,
+                _text(s.last_log),
                 None if s.deadline is None else s.deadline - now,
             )
             for s in sessions
@@ -105,9 +116,9 @@ class SQLiteRepository:
                 i.chat_id,
                 i.message_id,
                 i.challenger_id,
-                i.challenger_name,
+                _text(i.challenger_name),
                 i.target_id,
-                i.target_name,
+                _text(i.target_name),
                 i.expires_at - now,
             )
             for i in invites
