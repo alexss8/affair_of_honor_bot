@@ -93,65 +93,69 @@ class SQLiteRepository:
     def save_suspended(self, sessions: list[DuelSession], invites: list[DuelInvite], now: float) -> None:
         """Сохраняет бои и вызовы при остановке; таймеры замораживаются (храним остаток времени)."""
         duel_rows = [
-            (
-                s.chat_id,
-                s.message_id,
-                s.p1.id,
-                _text(s.p1.name),
-                s.p1.hp,
-                s.p1.choice,
-                s.p2.id,
-                _text(s.p2.name),
-                s.p2.hp,
-                s.p2.choice,
-                s.attacker_id,
-                s.max_hp,
-                _text(s.last_log),
-                None if s.deadline is None else s.deadline - now,
-            )
+            {
+                "chat_id": s.chat_id,
+                "message_id": s.message_id,
+                **_player_columns("p1", s.p1),
+                **_player_columns("p2", s.p2),
+                "attacker_id": s.attacker_id,
+                "max_hp": s.max_hp,
+                "last_log": _text(s.last_log),
+                "remaining_sec": None if s.deadline is None else s.deadline - now,
+            }
             for s in sessions
         ]
         invite_rows = [
-            (
-                i.chat_id,
-                i.message_id,
-                i.challenger_id,
-                _text(i.challenger_name),
-                i.target_id,
-                _text(i.target_name),
-                i.expires_at - now,
-            )
+            {
+                "chat_id": i.chat_id,
+                "message_id": i.message_id,
+                "challenger_id": i.challenger_id,
+                "challenger_name": _text(i.challenger_name),
+                "target_id": i.target_id,
+                "target_name": _text(i.target_name),
+                "remaining_sec": i.expires_at - now,
+            }
             for i in invites
         ]
         conn = self._get_conn()
         with conn:
-            conn.executemany(f"INSERT OR REPLACE INTO suspended_duels VALUES ({', '.join('?' * 14)})", duel_rows)
-            conn.executemany("INSERT OR REPLACE INTO suspended_invites VALUES (?, ?, ?, ?, ?, ?, ?)", invite_rows)
+            _insert_rows(conn, "suspended_duels", duel_rows)
+            _insert_rows(conn, "suspended_invites", invite_rows)
 
     def pop_suspended(self, now: float) -> tuple[list[DuelSession], list[DuelInvite]]:
         """Забирает сохранённые бои и вызовы (и очищает снимок); время отсчитывается от now."""
         conn = self._get_conn()
+        cur = conn.cursor()
+        cur.row_factory = sqlite3.Row  # columns by name: a column added by a future migration is ignored
         with conn:
-            duel_rows = conn.execute("SELECT * FROM suspended_duels").fetchall()
-            invite_rows = conn.execute("SELECT * FROM suspended_invites").fetchall()
-            conn.execute("DELETE FROM suspended_duels")
-            conn.execute("DELETE FROM suspended_invites")
+            duel_rows = cur.execute("SELECT * FROM suspended_duels").fetchall()
+            invite_rows = cur.execute("SELECT * FROM suspended_invites").fetchall()
+            cur.execute("DELETE FROM suspended_duels")
+            cur.execute("DELETE FROM suspended_invites")
         sessions = [
             DuelSession(
-                chat_id=row[0],
-                message_id=row[1],
-                p1=_player(*row[2:6]),
-                p2=_player(*row[6:10]),
-                attacker_id=row[10],
-                max_hp=row[11],
-                last_log=row[12],
-                deadline=None if row[13] is None else now + row[13],
+                chat_id=row["chat_id"],
+                message_id=row["message_id"],
+                p1=_player(row, "p1"),
+                p2=_player(row, "p2"),
+                attacker_id=row["attacker_id"],
+                max_hp=row["max_hp"],
+                last_log=row["last_log"],
+                deadline=None if row["remaining_sec"] is None else now + row["remaining_sec"],
             )
             for row in duel_rows
         ]
         invites = [
-            DuelInvite(chat_id, message_id, ch_id, ch_name, t_id, t_name, expires_at=now + remaining)
-            for chat_id, message_id, ch_id, ch_name, t_id, t_name, remaining in invite_rows
+            DuelInvite(
+                chat_id=row["chat_id"],
+                message_id=row["message_id"],
+                challenger_id=row["challenger_id"],
+                challenger_name=row["challenger_name"],
+                target_id=row["target_id"],
+                target_name=row["target_name"],
+                expires_at=now + row["remaining_sec"],
+            )
+            for row in invite_rows
         ]
         return sessions, invites
 
@@ -173,5 +177,30 @@ class SQLiteRepository:
         }
 
 
-def _player(player_id: int, name: str, hp: int, choice: str | None) -> Player:
-    return Player(id=player_id, name=name, hp=hp, choice=Zone(choice) if choice else None)
+def _insert_rows(conn: sqlite3.Connection, table: str, rows: list[dict]) -> None:
+    """INSERT OR REPLACE строк-словарей; колонки берутся из ключей. table — только константа из кода."""
+    if not rows:
+        return
+    columns = list(rows[0])
+    sql = f"INSERT OR REPLACE INTO {table} ({', '.join(columns)}) VALUES ({', '.join(f':{c}' for c in columns)})"
+    conn.executemany(sql, rows)
+
+
+def _player_columns(prefix: str, player: Player) -> dict:
+    """Колонки игрока в suspended_duels: p1_id, p1_name, p1_hp, p1_choice (или p2_...)."""
+    return {
+        f"{prefix}_id": player.id,
+        f"{prefix}_name": _text(player.name),
+        f"{prefix}_hp": player.hp,
+        f"{prefix}_choice": player.choice,
+    }
+
+
+def _player(row: sqlite3.Row, prefix: str) -> Player:
+    choice = row[f"{prefix}_choice"]
+    return Player(
+        id=row[f"{prefix}_id"],
+        name=row[f"{prefix}_name"],
+        hp=row[f"{prefix}_hp"],
+        choice=Zone(choice) if choice else None,
+    )

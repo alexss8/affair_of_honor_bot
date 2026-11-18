@@ -82,6 +82,30 @@ def test_suspended_state_roundtrip_freezes_time(repo, engine):
     assert repo.pop_suspended(now=5000.0) == ([], [])
 
 
+def test_suspended_snapshot_survives_new_column_from_future_migration(repo, engine):
+    """Будущая миграция может добавить колонку в таблицы снимка: запись и чтение идут по именам колонок."""
+    for table in ("suspended_duels", "suspended_invites"):
+        repo._conn.execute(f"ALTER TABLE {table} ADD COLUMN extra TEXT")
+    session = engine.start_duel(1, 100, 10, "Alice", 20, "Bob")
+    session.p2.choice, session.last_log, session.deadline = Zone.TOP, "Удар!", 130.0
+    invite = engine.create_invite(2, 200, 50, "Eve", 60, "Frank", now=100.0)
+
+    repo.save_suspended([session], [invite], now=100.0)
+    sessions, invites = repo.pop_suspended(now=1000.0)
+
+    s = sessions[0]
+    assert (s.chat_id, s.message_id, s.p1.name, s.p2.choice, s.last_log, s.deadline) == (
+        1,
+        100,
+        "Alice",
+        Zone.TOP,
+        "Удар!",
+        1030.0,
+    )
+    inv = invites[0]
+    assert (inv.message_id, inv.challenger_name, inv.target_name, inv.expires_at) == (200, "Eve", "Frank", 1060.0)
+
+
 def test_restore_registers_sessions_and_invites(engine, repo):
     rolling = engine.start_duel(1, 100, 10, "Alice", 20, "Bob")
     rolling.p1.choice = rolling.p2.choice = Zone.TOP
