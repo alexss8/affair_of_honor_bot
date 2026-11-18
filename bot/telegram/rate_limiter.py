@@ -214,12 +214,16 @@ class RateLimiter(BaseRequestMiddleware):
 
     def _on_flood(self, chat_id: int | str, state: _ChatState, api_method: str, retry_after: float) -> None:
         now = self._clock()
+        # Запросы всплеска уходят вместе: 429 на них приходят уже во время паузы и лимит снова не снижают
+        same_burst = max(state.paused_until, self._global_paused_until) > now
         state.paused_until = max(state.paused_until, now + retry_after)
         # 429 сразу в двух чатах — похоже на общий лимит: ждут все чаты до самого позднего конца паузы
         paused = [s.paused_until for s in self._chats.values() if s.paused_until > now]
         everyone = len(paused) > 1
         if everyone:
             self._global_paused_until = max(self._global_paused_until, *paused)
+        if same_burst:
+            return
 
         with log_chat(chat_id if isinstance(chat_id, int) else None):
             if state.is_group:

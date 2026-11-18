@@ -255,6 +255,51 @@ async def test_lowered_group_limit_recovers_but_not_above_fallback(limiter, cloc
     assert limiter.group_limit_for(GROUP) == 20
 
 
+def in_flight_flooding_sender(clock: FakeClock, floods: dict):
+    """Как flooding_sender, но ответ приходит не сразу: запросы всплеска успевают уйти в Telegram вместе."""
+    instant = flooding_sender(clock, [], floods)
+
+    async def make_request(bot, method):
+        await asyncio.sleep(0)
+        return await instant(bot, method)
+
+    return make_request
+
+
+async def test_floods_from_one_burst_roll_back_group_limit_once(limiter, clock, caplog):
+    request = in_flight_flooding_sender(clock, {GROUP: [5, 5, 5]})
+
+    with caplog.at_level(logging.WARNING, logger="duel_bot"):
+        await asyncio.gather(*(call_ignoring_flood(limiter, request, edit(GROUP, i)) for i in range(CHAT_LIMIT)))
+
+    assert limiter.group_limit_for(GROUP) == GROUP_FALLBACK_LIMIT
+    messages = [r.getMessage() for r in caplog.records]
+    assert sum("Лимит групп снижен" in m for m in messages) == 1
+    assert sum("(429)" in m for m in messages) == 1
+
+
+async def test_flood_from_one_burst_extends_pause_without_lowering_limit(limiter, clock):
+    request = in_flight_flooding_sender(clock, {GROUP: [5, 8]})
+    await call_ignoring_flood(limiter, flooding_sender(clock, [], {GROUP: [1]}), edit(GROUP))  # лимит уже 20
+    clock.now += 2  # пауза кончилась
+
+    await asyncio.gather(*(call_ignoring_flood(limiter, request, edit(GROUP, i)) for i in range(2)))
+
+    assert limiter.group_limit_for(GROUP) == 15  # один шаг снижения на всплеск, а не два
+    assert limiter.estimate_wait(GROUP) == pytest.approx(8)
+
+
+async def test_flood_during_pause_of_every_chat_does_not_lower_limit(limiter, clock):
+    third = -100789
+    request = in_flight_flooding_sender(clock, {GROUP: [5], OTHER_GROUP: [8], third: [5]})
+
+    await asyncio.gather(*(call_ignoring_flood(limiter, request, edit(chat)) for chat in (GROUP, OTHER_GROUP, third)))
+
+    # 429 в двух группах поставили общую паузу; ответ третьей группе пришёл уже во время неё
+    assert limiter.group_limit_for(third) == GROUP_FALLBACK_LIMIT
+    assert limiter.estimate_wait(third) == pytest.approx(8)
+
+
 async def test_flood_writes_one_log_record_with_method_and_chat(limiter, clock, caplog):
     caplog.handler.setFormatter(make_formatter())
     request = flooding_sender(clock, [], {GROUP: [7]})
