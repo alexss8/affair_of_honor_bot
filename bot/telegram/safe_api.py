@@ -44,7 +44,7 @@ async def _edit_with_retry(edit: Callable[[], Awaitable[Any]], chat_id: int) -> 
             await edit()
             return True
         except TelegramRetryAfter as e:
-            logger.warning("Лимит Telegram (429). Ждем %s сек...", e.retry_after)
+            # Запись о паузе пишет лимитер (rate_limiter.py)
             await asyncio.sleep(e.retry_after)
         except TelegramBadRequest as e:
             msg = e.message.lower()
@@ -110,8 +110,7 @@ async def safe_answer(
         try:
             return await target.answer(text, **kwargs)
         except TelegramRetryAfter as e:
-            if attempt == 0:
-                logger.warning("Лимит Telegram (429) при отправке. Ждем %s сек...", e.retry_after)
+            if attempt == 0:  # запись о паузе пишет лимитер (rate_limiter.py)
                 await asyncio.sleep(e.retry_after)
         except TelegramBadRequest as e:
             logger.warning("Ошибка при отправке сообщения: %s", e.message)
@@ -129,8 +128,7 @@ async def safe_reply(message: Message, text: str) -> None:
             await message.reply(text, parse_mode="HTML")
             return
         except TelegramRetryAfter as e:
-            if attempt == 0:
-                logger.warning("Лимит Telegram (429) при ответе. Ждем %s сек...", e.retry_after)
+            if attempt == 0:  # запись о паузе пишет лимитер (rate_limiter.py)
                 await asyncio.sleep(e.retry_after)
         except TelegramBadRequest as e:
             if "message to be replied not found" in e.message.lower():
