@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import sqlite3
 from contextlib import closing
@@ -500,6 +501,59 @@ def test_button_shows_raw_name(engine):
 
     footer = keyboards.battle_keyboard(session).inline_keyboard[-1][0].text
     assert EVIL in footer
+
+
+LONG_NAME = "<b>Tom & Jerry</b> " + "Я" * 40
+LONG_SHORT = "<b>Tom & Jerry</b> ЯЯЯЯ…"  # 23 символа + «…»
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("Alice", "Alice"),
+        ("Я" * 24, "Я" * 24),
+        ("Я" * 25, "Я" * 23 + "…"),
+        ("Я" * 22 + " ЯЯЯ", "Я" * 22 + "…"),  # пробел перед «…» не оставляем
+        (LONG_NAME, LONG_SHORT),
+    ],
+)
+def test_short_name(name, expected):
+    assert texts.short_name(name) == expected
+    assert len(texts.short_name(name)) <= texts.NAME_MAX
+
+
+def test_battle_card_hearts_first_and_names_truncated(engine):
+    session = engine.start_duel(1, 1, 10, "Alice", 20, LONG_NAME)
+    session.p2.hp = 3
+    lines = texts.render_battle(session).splitlines()
+
+    assert "❤️❤️❤️❤️❤️ Alice" in lines
+    assert "❤️❤️❤️🖤🖤 " + html.escape(LONG_SHORT) in lines
+    assert "🟢 Защищается: <b>" + html.escape(LONG_SHORT) + "</b>" in lines
+    assert "Я" * 24 not in texts.render_battle(session)
+
+    engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
+    footer = keyboards.battle_keyboard(session).inline_keyboard[-1][0].text
+    assert LONG_SHORT in footer and "Я" * 24 not in footer
+
+
+def test_cards_and_top_truncate_long_names(engine, service):
+    invite = DuelInvite(1, 50, 10, LONG_NAME, 20, "Bob", expires_at=100.0)
+    session = engine.start_duel(1, 1, 10, "Alice", 20, LONG_NAME)
+    surrender = engine.start_duel(1, 2, 10, "Alice", 20, LONG_NAME)
+    timeout = engine.start_duel(1, 3, 10, LONG_NAME, 20, "Bob")
+    timeout.p2.hp = 1
+    texts_to_check = [
+        texts.render_invite(LONG_NAME, "Bob"),
+        texts.render_invite_interrupted(invite),
+        texts.render_cancelled(session, LONG_NAME),
+        texts.render_interrupted(session),
+        texts.render_outcome(service.finish(engine.surrender(surrender, surrender.p2)), 10),
+        texts.render_outcome(service.finish(engine.resolve_timeout(timeout)), 10),
+    ]
+    for text in texts_to_check:
+        assert html.escape(LONG_SHORT) in text
+        assert "Я" * 24 not in text
 
 
 @pytest.mark.parametrize(

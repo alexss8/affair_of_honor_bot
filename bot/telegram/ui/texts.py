@@ -12,13 +12,28 @@ def user_nick(user) -> str:
     return f"@{user.username}" if user.username else (user.first_name or FALLBACK_NICK)
 
 
+NAME_MAX = 24  # длиннее имя в подписях карточек и кнопках не показываем (= потолок псевдонима, 7.3)
+
+
+def short_name(name: str) -> str:
+    """Имя, обрезанное до NAME_MAX символов с «…» — чтобы длинный ник не ломал вёрстку карточки (сырое)."""
+    if len(name) <= NAME_MAX:
+        return name
+    return name[: NAME_MAX - 1].rstrip() + "…"
+
+
 def _h(text: str) -> str:
     """Сырой текст (ник, реплика раунда) для вставки в HTML-сообщение."""
     return html.escape(text)
 
 
+def _name(name: str) -> str:
+    """Имя для подписи в HTML-карточке: обрезанное и экранированное."""
+    return _h(short_name(name))
+
+
 def render_invite(p1_name: str, p2_name: str) -> str:
-    return f"🔥 <b>{_h(p1_name)}</b> вызывает <b>{_h(p2_name)}</b> на дуэль! ⚔️"
+    return f"🔥 <b>{_name(p1_name)}</b> вызывает <b>{_name(p2_name)}</b> на дуэль! ⚔️"
 
 
 INVITE_EXPIRED = "⌛ Вызов на дуэль истёк — соперник не ответил вовремя."
@@ -35,21 +50,21 @@ def render_invite_paused(invite: DuelInvite) -> str:
 
 def render_cancelled(session: DuelSession, canceler_name: str) -> str:
     return (
-        f"🚫 <b>ДУЭЛЬ ОТМЕНЕНА</b>\n\n<i>Бой между {_h(session.p1.name)} и {_h(session.p2.name)} "
-        f"аннулирован игроком {_h(canceler_name)} (без изменения рейтинга).</i>"
+        f"🚫 <b>ДУЭЛЬ ОТМЕНЕНА</b>\n\n<i>Бой между {_name(session.p1.name)} и {_name(session.p2.name)} "
+        f"аннулирован игроком {_name(canceler_name)} (без изменения рейтинга).</i>"
     )
 
 
 def render_interrupted(session: DuelSession) -> str:
     return (
-        f"⚠️ <b>БОЙ ПРЕРВАН</b>\n\n<i>Бой между {_h(session.p1.name)} и {_h(session.p2.name)} "
+        f"⚠️ <b>БОЙ ПРЕРВАН</b>\n\n<i>Бой между {_name(session.p1.name)} и {_name(session.p2.name)} "
         "прерван перезапуском бота, рейтинг не изменён.</i>"
     )
 
 
 def render_invite_interrupted(invite: DuelInvite) -> str:
     return (
-        f"⚠️ Вызов {_h(invite.challenger_name)} → {_h(invite.target_name)} снят: бот перезапускался. "
+        f"⚠️ Вызов {_name(invite.challenger_name)} → {_name(invite.target_name)} снят: бот перезапускался. "
         "Брось вызов заново: /duel"
     )
 
@@ -65,11 +80,12 @@ def render_battle(session: DuelSession) -> str:
 
     return (
         f"⚔️ <b>ДУЭЛЬ</b> ⚔️\n\n"
-        f"{_h(session.p1.name)}: {hp_bar(session.p1.hp)}\n"
-        f"{_h(session.p2.name)}: {hp_bar(session.p2.hp)}\n\n"
+        # Жизни перед именем: полоска фиксированной длины не рвётся, если имя не влезет в строку
+        f"{hp_bar(session.p1.hp)} {_name(session.p1.name)}\n"
+        f"{hp_bar(session.p2.hp)} {_name(session.p2.name)}\n\n"
         f"{log_block}"
-        f"{att_icon} Атакует: <b>{_h(session.attacker.name)}</b>\n"
-        f"{def_icon} Защищается: <b>{_h(session.defender.name)}</b>"
+        f"{att_icon} Атакует: <b>{_name(session.attacker.name)}</b>\n"
+        f"{def_icon} Защищается: <b>{_name(session.defender.name)}</b>"
     )
 
 
@@ -80,7 +96,7 @@ def render_top(stats: list[PlayerStats], limit: int = 10) -> str:
     lines = [f"🏆 <b>ТОП-{limit} ДУЭЛЯНТОВ ЧАТА</b> 🏆\n"]
     for i, s in enumerate(stats, 1):
         prefix = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
-        lines.append(f"{prefix} {_h(s.nickname)} — <b>{s.wins}</b> побед / {s.losses} пор. ({s.winrate}%)")
+        lines.append(f"{prefix} {_name(s.nickname)} — <b>{s.wins}</b> побед / {s.losses} пор. ({s.winrate}%)")
     return "\n".join(lines)
 
 
@@ -90,7 +106,7 @@ def render_victory(
     return (
         f"{icon} <b>ДУЭЛЬ #{duel_id} ОКОНЧЕНА!</b>\n\n"
         f"<i>{_h(reason)}</i>\n\n"
-        f"Победитель: <b>{_h(winner.name)}</b> (+1 в рейтинг)\n\n"
+        f"Победитель: <b>{_name(winner.name)}</b> (+1 в рейтинг)\n\n"
         f"{render_top(stats, limit)}"
     )
 
@@ -112,9 +128,12 @@ def render_outcome(finished: FinishedDuel, limit: int) -> str:
         reason = f"⏰ Время дуэли вышло! У обоих бойцов осталось по {outcome.session.p1.hp} ❤️."
         return render_draw(reason, finished.top, limit, icon="⏰")
     if outcome.kind is OutcomeKind.SURRENDER:
-        reason, icon = f"{loser.name} выбросил белый флаг и сдался!", "🏳️"
+        reason, icon = f"{short_name(loser.name)} выбросил белый флаг и сдался!", "🏳️"
     elif outcome.kind is OutcomeKind.TIMEOUT:
-        reason = f"⏰ Время дуэли вышло! {winner.name} ({winner.hp} ❤️) оказался сильнее {loser.name} ({loser.hp} ❤️)."
+        reason = (
+            f"⏰ Время дуэли вышло! {short_name(winner.name)} ({winner.hp} ❤️) "
+            f"оказался сильнее {short_name(loser.name)} ({loser.hp} ❤️)."
+        )
         icon = "⏰"
     else:
         reason, icon = outcome.session.last_log, "🏆"

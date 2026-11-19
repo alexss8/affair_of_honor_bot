@@ -2,6 +2,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.domain.models import DuelSession, MoveKind, Zone
 from bot.telegram.callbacks import DebugAction, DebugCb, InviteAction, InviteCb, MoveCb, SurrenderCb
+from bot.telegram.ui.texts import short_name
 
 
 def debug_keyboard() -> InlineKeyboardMarkup:
@@ -41,9 +42,9 @@ def battle_keyboard(session: DuelSession) -> InlineKeyboardMarkup:
     if session.surrender_confirm_id is not None:
         footer_text = "⚠️ Точно сдаться? (нажми еще раз)"
     elif session.p1.choice and not session.p2.choice:
-        footer_text = f"⏳ Ждем {session.p2.name}... (Сдаться)"
+        footer_text = f"⏳ Ждем {short_name(session.p2.name)}... (Сдаться)"
     elif session.p2.choice and not session.p1.choice:
-        footer_text = f"⏳ Ждем {session.p1.name}... (Сдаться)"
+        footer_text = f"⏳ Ждем {short_name(session.p1.name)}... (Сдаться)"
     else:
         footer_text = "🏳️ Сдаться"
 

@@ -185,7 +185,7 @@ async def test_card_is_rendered_after_waiting_for_chat_slot(session):
 
     assert now[0] > 0
     assert card.sent == [texts.render_battle(session)]
-    assert "Bob: ❤️🖤" in card.sent[0]
+    assert "❤️🖤🖤🖤🖤 Bob" in card.sent[0].splitlines()
     await bot.session.close()
 
 
