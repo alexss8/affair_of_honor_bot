@@ -96,7 +96,8 @@ def render_top(stats: list[PlayerStats], limit: int = 10) -> str:
     lines = [f"🏆 <b>ТОП-{limit} ДУЭЛЯНТОВ ЧАТА</b> 🏆\n"]
     for i, s in enumerate(stats, 1):
         prefix = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
-        lines.append(f"{prefix} {_name(s.nickname)} — <b>{s.wins}</b> побед / {s.losses} пор. ({s.winrate}%)")
+        wins = plural(s.wins, "победа", "победы", "побед")
+        lines.append(f"{prefix} {_name(s.nickname)} — <b>{s.wins}</b> {wins} / {s.losses} пор. ({s.winrate}%)")
     return "\n".join(lines)
 
 

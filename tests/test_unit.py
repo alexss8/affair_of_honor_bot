@@ -13,7 +13,7 @@ from helpers import TOKEN
 import bot.__main__ as bot_main
 from bot.config import Config
 from bot.domain.engine import DuelEngine
-from bot.domain.models import ChoiceResult, DuelInvite, DuelPhase, MoveKind, OutcomeKind, Player, Zone
+from bot.domain.models import ChoiceResult, DuelInvite, DuelPhase, MoveKind, OutcomeKind, Player, PlayerStats, Zone
 from bot.services.duel_service import DuelService
 from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
@@ -505,6 +505,21 @@ def test_button_shows_raw_name(engine):
 
 LONG_NAME = "<b>Tom & Jerry</b> " + "Я" * 40
 LONG_SHORT = "<b>Tom & Jerry</b> ЯЯЯЯ…"  # 23 символа + «…»
+
+
+@pytest.mark.parametrize(
+    "wins, expected",
+    [
+        (1, "<b>1</b> победа"),
+        (2, "<b>2</b> победы"),
+        (5, "<b>5</b> побед"),
+        (11, "<b>11</b> побед"),
+        (21, "<b>21</b> победа"),
+    ],
+)
+def test_top_declines_wins(wins, expected):
+    text = texts.render_top([PlayerStats("Alice", wins, 1)])
+    assert f"Alice — {expected} / 1 пор." in text
 
 
 @pytest.mark.parametrize(
