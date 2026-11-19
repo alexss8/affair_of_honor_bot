@@ -32,6 +32,7 @@ def main() -> None:
     invite_ttl = prompt_value("Сколько секунд действует вызов на дуэль (INVITE_TTL_SEC)", default="300")
     db_path = prompt_value("Имя файла базы данных (DB_PATH)", default="duels.db")
     log_file = prompt_value("Имя файла логов (LOG_FILE)", default="bot.log")
+    debug_tools = prompt_value("Отладочный стенд /debug, только для тестового бота (DEBUG_TOOLS, 0/1)", default="0")
 
     content = (
         f"BOT_TOKEN={token}\n"
@@ -42,6 +43,7 @@ def main() -> None:
         f"INVITE_TTL_SEC={invite_ttl}\n"
         f"DB_PATH={db_path}\n"
         f"LOG_FILE={log_file}\n"
+        f"DEBUG_TOOLS={debug_tools}\n"
     )
 
     with open(ENV_FILE, "w", encoding="utf-8") as f:

@@ -8,7 +8,17 @@ from aiogram.types import Message
 from bot.domain.engine import DuelEngine
 from bot.domain.models import DuelSession
 from bot.services.duel_service import DuelService
-from bot.telegram.duel_cards import announce_outcome
+from bot.telegram.duel_cards import announce_outcome, refresh_card
+
+
+async def open_battle(
+    message: Message, session: DuelSession, engine: DuelEngine, service: DuelService, timeout_sec: float
+) -> None:
+    """Показывает карточку только что начатого боя и запускает его таймер; без карточки бой снимается."""
+    if not await refresh_card(message, session):
+        engine.drop_session(session.chat_id, session.message_id)
+        return
+    start_duel_timer(session, message, engine, service, timeout_sec)
 
 
 def start_duel_timer(

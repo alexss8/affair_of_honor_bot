@@ -120,6 +120,20 @@ def render_outcome(finished: FinishedDuel, limit: int) -> str:
     return render_victory(finished.duel_id, winner, reason, finished.top, limit, icon=icon)
 
 
+DEBUG_MENU = (
+    "🛠 <b>Отладочный стенд</b>\n\n"
+    "🤖 <b>Дуэль с ботом</b> — бой против бота: он ходит сам, когда ходишь ты.\n"
+    "😈 <b>Дуэль со злым именем</b> — то же, у соперника имя с HTML, эмодзи и длиной под 60 символов.\n"
+    "🐌 <b>Имитировать 429</b> — лимитер получает ответ 429: чат на паузе, лимит групп откатывается."
+)
+DEBUG_BUSY = "Ты уже в бою — заверши его или /cancel."
+DEBUG_CARD_PLACEHOLDER = "⚔️ Готовим бой…"
+
+
+def render_debug_flood(retry_after: int) -> str:
+    return f"Чат на паузе {retry_after} с — сделай ход в бою, увидишь подсказку о притормаживании."
+
+
 ERROR_NOTICE = "⚠️ Что-то сломалось на нашей стороне. Попробуй ещё раз; если бой завис — /cancel"
 
 

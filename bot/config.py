@@ -28,18 +28,22 @@ class Config:
     invite_ttl_sec: int = 300
     db_path: str = "duels.db"
     log_file: str = "bot.log"
+    debug_tools: bool = False
 
 
 def load_config() -> Config:
-    """Читает настройки из окружения и .env.
+    """Читает настройки из окружения и .env (или файла из переменной окружения ENV_FILE — для тестового бота).
 
     Пустое значение равносильно отсутствию переменной (берётся значение по умолчанию).
 
     Raises:
         ConfigError: в настройках есть ошибки; в сообщении — каждая с именем переменной.
     """
-    load_dotenv()
     errors: list[str] = []
+    env_file = os.getenv("ENV_FILE", "").strip()
+    if env_file and not Path(env_file).is_file():
+        errors.append(f"ENV_FILE={env_file!r}: файла нет")
+    load_dotenv(env_file or ".env")
     defaults = Config(bot_token="")
 
     def raw(name: str) -> str | None:
@@ -80,6 +84,10 @@ def load_config() -> Config:
         else:
             errors.append(f"ADMIN_ID={admin_raw!r}: нужен числовой Telegram ID (узнать можно у @userinfobot)")
 
+    debug_tools = int_setting("DEBUG_TOOLS", 0, 0, 1) == 1
+    if debug_tools and admin_id is None:
+        errors.append("DEBUG_TOOLS=1: нужен ADMIN_ID — команда /debug доступна только админу")
+
     config = Config(
         bot_token=token,
         admin_id=admin_id,
@@ -89,6 +97,7 @@ def load_config() -> Config:
         invite_ttl_sec=int_setting("INVITE_TTL_SEC", defaults.invite_ttl_sec, 10, 86400),
         db_path=path_setting("DB_PATH", defaults.db_path),
         log_file=path_setting("LOG_FILE", defaults.log_file),
+        debug_tools=debug_tools,
     )
     if errors:
         raise ConfigError("Ошибки в настройках (.env):\n" + "\n".join(f"  • {e}" for e in errors))

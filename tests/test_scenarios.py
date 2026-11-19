@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
-from aiogram.methods import AnswerCallbackQuery, EditMessageText
+from aiogram.methods import EditMessageText
 from aiogram.types import Chat, ForumTopicCreated, Message, MessageEntity
 from helpers import (
     ACCEPT,
@@ -26,6 +26,7 @@ from helpers import (
     TROLL,
     FakeClock,
     build_dispatcher,
+    callback_answers,
     cancel_timers,
     make_callback_update,
     make_invite,
@@ -355,7 +356,7 @@ async def test_second_choice_answers_and_shows_next_round(bot_env):
     with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
         await dp.feed_update(bot, make_callback_update(1, BOB, DEFEND_BOT))
 
-    [answer] = _callback_answers(bot)
+    [answer] = callback_answers(bot)
     assert answer.text == "Выбор принят!"
     mock_edit.assert_awaited_once()
     assert "🔴 Атакует: <b>@bob</b>" in mock_edit.call_args.kwargs["text"]
@@ -675,10 +676,6 @@ async def _limiter_paused_for(seconds: int) -> RateLimiter:
     return limiter
 
 
-def _callback_answers(bot) -> list[AnswerCallbackQuery]:
-    return [c.args[0] for c in bot.call_args_list if c.args and isinstance(c.args[0], AnswerCallbackQuery)]
-
-
 async def _start_battle(dp, bot, engine) -> None:
     make_invite(engine)
     await dp.feed_update(bot, make_callback_update(1, BOB, ACCEPT))
@@ -693,7 +690,7 @@ async def test_move_reply_warns_when_chat_is_slowed_down(bot_env, pause, expecte
 
     await dp.feed_update(bot, make_callback_update(2, ALICE, ATTACK_TOP))
 
-    [answer] = _callback_answers(bot)
+    [answer] = callback_answers(bot)
     assert answer.text == expected
     assert not answer.show_alert
 
@@ -707,7 +704,7 @@ async def test_move_reply_is_plain_without_noticeable_wait(bot_env, pause):
 
     await dp.feed_update(bot, make_callback_update(2, ALICE, ATTACK_TOP))
 
-    [answer] = _callback_answers(bot)
+    [answer] = callback_answers(bot)
     assert answer.text == "Выбор принят! Ждем соперника."
 
 
@@ -718,6 +715,6 @@ async def test_wrong_move_reply_has_no_slow_hint(bot_env):
 
     await dp.feed_update(bot, make_callback_update(2, BOB, ATTACK_TOP))
 
-    [answer] = _callback_answers(bot)
+    [answer] = callback_answers(bot)
     assert answer.text == "Сейчас твой ход ЗАЩИЩАТЬСЯ! Выбери один из блоков."
     assert answer.show_alert

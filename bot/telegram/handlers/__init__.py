@@ -1,8 +1,9 @@
 """Корневой роутер бота: подключает middleware и все тематические роутеры."""
 
-from aiogram import Router
+from aiogram import Dispatcher, Router
 
-from bot.telegram.handlers import admin, battle, common, errors, fallback, invite, lifecycle
+from bot.config import Config
+from bot.telegram.handlers import admin, battle, common, debug, errors, fallback, invite, lifecycle
 from bot.telegram.middlewares import cache_user_middleware, log_context_middleware
 
 router = Router(name="root")
@@ -20,3 +21,10 @@ router.include_routers(
     battle.router,
     fallback.router,
 )
+
+
+def include_handlers(dp: Dispatcher, config: Config) -> None:
+    """Подключает обработчики; отладочный стенд — только при DEBUG_TOOLS и раньше корневого роутера."""
+    if config.debug_tools:
+        dp.include_router(debug.router)
+    dp.include_router(router)

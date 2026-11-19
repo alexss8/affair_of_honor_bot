@@ -26,3 +26,15 @@ class MoveCb(CallbackData, prefix="mv"):
 
 class SurrenderCb(CallbackData, prefix="surrender"):
     pass
+
+
+class DebugAction(StrEnum):
+    BOT_DUEL = "bot_duel"
+    EVIL_NAME_DUEL = "evil_duel"
+    FLOOD = "flood"
+
+
+class DebugCb(CallbackData, prefix="dbg"):
+    """Кнопки отладочного стенда (/debug, только при DEBUG_TOOLS)."""
+
+    action: DebugAction

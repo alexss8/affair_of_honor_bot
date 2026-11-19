@@ -12,14 +12,17 @@ from bot.services.alert_throttle import AlertThrottle
 from bot.services.duel_service import DuelService
 from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
-from bot.telegram.handlers import router
+from bot.telegram.handlers import include_handlers
 from bot.telegram.handlers.errors import ERROR_NOTICE_COOLDOWN_SEC
 from bot.telegram.rate_limiter import RateLimiter
+from bot.telegram.request_tracer import RequestTracer
 
 
-def create_bot(token: str, limiter: RateLimiter) -> Bot:
-    """Бот, все запросы которого идут через лимитер."""
+def create_bot(token: str, limiter: RateLimiter, *, trace: bool = False) -> Bot:
+    """Бот, все запросы которого идут через лимитер; trace — строка в лог на каждый запрос (отладочный стенд)."""
     bot = Bot(token=token)
+    if trace:
+        bot.session.middleware(RequestTracer(limiter))  # первым — снаружи лимитера, время включает ожидание
     bot.session.middleware(limiter)
     return bot
 
@@ -37,7 +40,7 @@ async def main(config: Config) -> None:
     service = DuelService(repo=repo, logger=logger, top_limit=config.top_limit)
 
     limiter = RateLimiter()
-    bot = create_bot(config.bot_token, limiter)
+    bot = create_bot(config.bot_token, limiter, trace=config.debug_tools)
     dp = Dispatcher()
     dp["config"] = config
     dp["repo"] = repo
@@ -48,7 +51,7 @@ async def main(config: Config) -> None:
     dp["error_notices"] = AlertThrottle(cooldown_sec=ERROR_NOTICE_COOLDOWN_SEC)
     dp["started_at"] = started_at
     dp["limiter"] = limiter
-    dp.include_router(router)
+    include_handlers(dp, config)
 
     try:
         await bot.set_my_commands(

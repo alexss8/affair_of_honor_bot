@@ -1,7 +1,20 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.domain.models import DuelSession, MoveKind, Zone
-from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb, SurrenderCb
+from bot.telegram.callbacks import DebugAction, DebugCb, InviteAction, InviteCb, MoveCb, SurrenderCb
+
+
+def debug_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        ("🤖 Дуэль с ботом", DebugAction.BOT_DUEL),
+        ("😈 Дуэль со злым именем", DebugAction.EVIL_NAME_DUEL),
+        ("🐌 Имитировать 429", DebugAction.FLOOD),
+    ]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=text, callback_data=DebugCb(action=action).pack())] for text, action in buttons
+        ]
+    )
 
 
 def invite_keyboard() -> InlineKeyboardMarkup:

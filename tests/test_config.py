@@ -21,6 +21,8 @@ SETTINGS = (
     "INVITE_TTL_SEC",
     "DB_PATH",
     "LOG_FILE",
+    "DEBUG_TOOLS",
+    "ENV_FILE",
 )
 
 
@@ -52,6 +54,41 @@ def test_all_settings_are_read(env, tmp_path):
     assert (cfg.admin_id, cfg.default_hp, cfg.top_limit) == (777, 3, 15)
     assert (cfg.duel_timeout_sec, cfg.invite_ttl_sec) == (120, 60)
     assert (cfg.db_path, cfg.log_file) == (str(tmp_path / "x.db"), str(tmp_path / "x.log"))
+
+
+def test_debug_tools_needs_admin(env):
+    env.setenv("DEBUG_TOOLS", "1")
+    with pytest.raises(ConfigError, match="DEBUG_TOOLS=1: нужен ADMIN_ID"):
+        load_config()
+
+    env.setenv("ADMIN_ID", "777")
+    assert load_config().debug_tools is True
+
+
+@pytest.mark.parametrize("value", ["yes", "2"])
+def test_debug_tools_accepts_only_0_or_1(env, value):
+    env.setenv("DEBUG_TOOLS", value)
+    with pytest.raises(ConfigError, match="DEBUG_TOOLS"):
+        load_config()
+
+
+def test_env_file_selects_dotenv_file(env, tmp_path):
+    loaded: list[str] = []
+    env.setattr(config_module, "load_dotenv", lambda path: loaded.append(path))
+
+    load_config()
+    debug_env = tmp_path / ".env.debug"
+    debug_env.write_text("", encoding="utf-8")
+    env.setenv("ENV_FILE", str(debug_env))
+    load_config()
+
+    assert loaded == [".env", str(debug_env)]
+
+
+def test_missing_env_file_is_an_error(env, tmp_path):
+    env.setenv("ENV_FILE", str(tmp_path / ".env.typo"))
+    with pytest.raises(ConfigError, match="ENV_FILE=.*файла нет"):
+        load_config()
 
 
 def test_empty_values_fall_back_to_defaults(env):

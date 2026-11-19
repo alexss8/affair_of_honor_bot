@@ -6,6 +6,7 @@ import logging
 import time
 
 from aiogram import Dispatcher
+from aiogram.methods import AnswerCallbackQuery, SendMessage
 from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
 
 from bot.config import Config
@@ -15,7 +16,7 @@ from bot.services.alert_throttle import AlertThrottle
 from bot.services.duel_service import DuelService
 from bot.telegram import invite_timer
 from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb, SurrenderCb
-from bot.telegram.handlers import router
+from bot.telegram.handlers import include_handlers
 from bot.telegram.handlers.errors import ERROR_NOTICE_COOLDOWN_SEC
 from bot.telegram.rate_limiter import RateLimiter
 
@@ -82,7 +83,7 @@ def build_dispatcher(
     dp["error_notices"] = AlertThrottle(cooldown_sec=ERROR_NOTICE_COOLDOWN_SEC)
     dp["started_at"] = time.time()
     dp["limiter"] = limiter or RateLimiter()
-    dp.include_router(router)
+    include_handlers(dp, config)
     return dp
 
 
@@ -131,3 +132,13 @@ def make_msg_update(
         reply_to_message=reply_to,
     )
     return Update(update_id=update_id, message=msg)
+
+
+def callback_answers(bot) -> list[AnswerCallbackQuery]:
+    """Ответы на нажатия кнопок, отправленные подменённым ботом (AsyncMock(spec=Bot))."""
+    return [c.args[0] for c in bot.call_args_list if c.args and isinstance(c.args[0], AnswerCallbackQuery)]
+
+
+def sent_messages(bot) -> list[SendMessage]:
+    """Сообщения, отправленные подменённым ботом через bot(SendMessage(...))."""
+    return [c.args[0] for c in bot.call_args_list if c.args and isinstance(c.args[0], SendMessage)]

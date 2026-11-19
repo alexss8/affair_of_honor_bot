@@ -11,8 +11,7 @@ from bot.domain.models import DuelInvite
 from bot.services.duel_service import DuelService
 from bot.storage.base import BaseRepository
 from bot.telegram.callbacks import InviteAction, InviteCb
-from bot.telegram.duel_cards import refresh_card
-from bot.telegram.duel_timer import start_duel_timer
+from bot.telegram.duel_timer import open_battle
 from bot.telegram.invite_timer import start_invite_timer
 from bot.telegram.safe_api import safe_answer, safe_answer_callback, safe_edit_text, safe_reply
 from bot.telegram.ui import keyboards, texts
@@ -113,10 +112,7 @@ async def handle_accept(cb: CallbackQuery, engine: DuelEngine, service: DuelServ
             return await safe_edit_text(cb.message, "❌ Один из игроков уже вступил в другой бой.")
         return await safe_answer_callback(cb, "Дуэль уже началась!")
     await safe_answer_callback(cb)
-    if not await refresh_card(cb.message, session):
-        engine.drop_session(session.chat_id, session.message_id)
-        return
-    start_duel_timer(session, cb.message, engine, service, config.duel_timeout_sec)
+    await open_battle(cb.message, session, engine, service, config.duel_timeout_sec)
 
 
 async def _get_live_invite(cb: CallbackQuery, engine: DuelEngine) -> DuelInvite | None:
