@@ -134,6 +134,10 @@ def render_debug_flood(retry_after: int) -> str:
     return f"Чат на паузе {retry_after} с — сделай ход в бою, увидишь подсказку о притормаживании."
 
 
+def render_debug_already_paused(wait_sec: float) -> str:
+    return f"Чат уже на паузе ещё ~{math.ceil(wait_sec)} с — новая пауза не нужна."
+
+
 ERROR_NOTICE = "⚠️ Что-то сломалось на нашей стороне. Попробуй ещё раз; если бой завис — /cancel"
 
 

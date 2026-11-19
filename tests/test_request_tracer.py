@@ -5,10 +5,11 @@ import logging
 import pytest
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
-from aiogram.methods import AnswerCallbackQuery, EditMessageText
+from aiogram.methods import AnswerCallbackQuery, EditMessageText, GetUpdates
 from helpers import FakeClock
 
 from bot.__main__ import create_bot
+from bot.logger import _current_chat_id, log_chat
 from bot.telegram.rate_limiter import RateLimiter, find_rate_limiter
 from bot.telegram.request_tracer import TEXT_PREVIEW_LEN, RequestTracer
 
@@ -71,6 +72,42 @@ async def test_request_without_chat_and_long_text(trace):
     [record] = _records(caplog)
     assert record.startswith("Запрос answerCallbackQuery: ок")
     assert record.endswith("Я" * TEXT_PREVIEW_LEN + "…»")
+
+
+async def test_request_without_chat_keeps_chat_of_current_update(trace):
+    """answerCallbackQuery без chat_id: в записи остаётся чат обрабатываемого нажатия, а не «-»."""
+    tracer, _, caplog = trace
+    seen: list[int | None] = []
+
+    class CaptureChat(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            seen.append(_current_chat_id.get())
+            return True
+
+    async def network(bot, method):
+        return True
+
+    capture = CaptureChat()
+    logging.getLogger("duel_bot").addFilter(capture)
+    try:
+        with log_chat(GROUP):
+            await tracer(network, None, AnswerCallbackQuery(callback_query_id="1"))
+    finally:
+        logging.getLogger("duel_bot").removeFilter(capture)
+
+    assert seen == [GROUP]
+
+
+async def test_long_polling_is_not_traced(trace):
+    """getUpdates висит до таймаута опроса — его время не задержка сети, а строка раз в 10 с забивает лог."""
+    tracer, _, caplog = trace
+
+    async def network(bot, method):
+        return []
+
+    await tracer(network, None, GetUpdates(timeout=10))
+
+    assert _records(caplog) == []
 
 
 def test_tracer_wraps_limiter_only_in_trace_mode():

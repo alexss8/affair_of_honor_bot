@@ -1,6 +1,7 @@
 """Отладочный стенд (/debug): включается только флагом DEBUG_TOOLS, доступен только ADMIN_ID, бой с ботом
 идёт по настоящему коду хода, имитация 429 срабатывает в настоящем лимитере."""
 
+import asyncio
 import datetime
 import logging
 from unittest.mock import AsyncMock, patch
@@ -145,10 +146,17 @@ async def test_bot_does_not_move_on_wrong_move_kind_twice(stand):
 async def test_evil_name_is_escaped_in_card(stand):
     dp, bot, engine, _ = stand
     mock_edit = await _start_bot_duel(dp, bot, EVIL_DUEL)
+    session = engine.get_session(CHAT_ID, CARD_ID)
+    # Свой ID: иначе в топе оба бота-соперника склеиваются в одну строку под последним именем
+    assert session.p2.id == debug.EVIL_OPPONENT_ID != debug.BOT_OPPONENT_ID
 
     text = mock_edit.call_args.kwargs["text"]
     assert "&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;" in text
     assert "<b>Tom" not in text
+
+    with patch.object(Message, "edit_text", new=AsyncMock()):  # злой соперник тоже ходит сам
+        await dp.feed_update(bot, make_callback_update(2, ALICE, ATTACK_TOP, msg_id=CARD_ID))
+    assert session.attacker_id == debug.EVIL_OPPONENT_ID
 
 
 async def test_second_bot_duel_is_refused_while_busy(stand):
@@ -158,6 +166,36 @@ async def test_second_bot_duel_is_refused_while_busy(stand):
 
     assert len(engine.sessions) == 1
     assert callback_answers(bot)[-1].text == texts.DEBUG_BUSY
+
+
+async def test_incoming_clicks_and_messages_are_logged(stand, caplog):
+    """В логе стенда видно, что пришло: какую кнопку нажали и кто, — в том числе чужие нажатия."""
+    dp, bot, _, _ = stand
+    caplog.set_level(logging.INFO, logger="duel_bot")
+
+    await dp.feed_update(bot, make_callback_update(1, ALICE, DEFEND_BOT, msg_id=CARD_ID))
+    await dp.feed_update(bot, make_callback_update(2, BOB, ATTACK_TOP, msg_id=CARD_ID))
+    await dp.feed_update(bot, make_msg_update(3, ALICE, "/debug", entities=DEBUG_COMMAND))
+
+    incoming = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Входящее")]
+    assert incoming == [
+        f"Входящее: нажатие {DEFEND_BOT} от {ALICE.id}",
+        f"Входящее: нажатие {ATTACK_TOP} от {BOB.id}",
+        f"Входящее: сообщение «/debug» от {ALICE.id}",
+    ]
+
+
+async def test_flood_button_while_paused_answers_at_once_without_new_pause(stand):
+    """Повторное «429» во время паузы не ждёт конца паузы в очереди и не снижает лимит группы ещё раз."""
+    dp, bot, _, limiter = stand
+    await dp.feed_update(bot, make_callback_update(1, ALICE, FLOOD))
+    paused_for = limiter.estimate_wait(CHAT_ID)
+
+    await asyncio.wait_for(dp.feed_update(bot, make_callback_update(2, ALICE, FLOOD)), timeout=2)
+
+    assert limiter.group_limit_for(CHAT_ID) == GROUP_FALLBACK_LIMIT
+    assert limiter.estimate_wait(CHAT_ID) <= paused_for
+    assert callback_answers(bot)[-1].text.startswith("Чат уже на паузе")
 
 
 async def test_flood_button_pauses_chat_in_real_limiter(stand):

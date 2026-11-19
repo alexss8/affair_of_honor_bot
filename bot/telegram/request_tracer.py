@@ -4,6 +4,7 @@
 какие запросы ушли, сколько ждали, какой текст карточки дошёл до Telegram и чем ответил Telegram.
 """
 
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -20,6 +21,8 @@ from bot.telegram.rate_limiter import RateLimiter
 logger = logging.getLogger("duel_bot")
 
 TEXT_PREVIEW_LEN = 80
+# Long polling waits for the poll timeout: its duration is not latency, and a line every 10 s buries the rest
+_UNTRACED_METHODS = frozenset({"getUpdates"})
 
 
 def _text_preview(method: TelegramMethod) -> str:
@@ -41,8 +44,10 @@ class RequestTracer(BaseRequestMiddleware):
         bot: Bot,
         method: TelegramMethod[TelegramType],
     ) -> Response[TelegramType]:
-        chat_id = getattr(method, "chat_id", None)
         api_method = method.__api_method__
+        if api_method in _UNTRACED_METHODS:
+            return await make_request(bot, method)
+        chat_id = getattr(method, "chat_id", None)
         queue = self._limiter.estimate_wait(chat_id) if chat_id is not None else 0.0
         started = self._clock()
         outcome = "ок"
@@ -58,7 +63,9 @@ class RequestTracer(BaseRequestMiddleware):
             outcome = type(e).__name__
             raise
         finally:
-            with log_chat(chat_id if isinstance(chat_id, int) else None):
+            # No chat in the method (answerCallbackQuery): keep the chat of the update being handled
+            context = log_chat(chat_id) if isinstance(chat_id, int) else contextlib.nullcontext()
+            with context:
                 logger.info(
                     "Запрос %s: %s за %.2f с (очередь ~%.1f с)%s",
                     api_method,
