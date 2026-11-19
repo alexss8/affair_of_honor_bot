@@ -30,7 +30,7 @@
 - **Стиль кода:** ruff (`pyproject.toml`, длина строки 120).
 - **Логи:** только ленивый формат `logger.info("... %s", x)` — f-строки в логах ловит правило ruff `G`. Чат в записи (`chat=<id>`) подставляет форматтер из `bot/logger.py` сам — в текст его не дописывайте; вне обработки апдейта (старт, остановка) нужен контекст — `with log_chat(chat_id):`. Маркер `| ERROR |`, по которому `/status` считает ошибки, не меняйте.
 - **Безопасность Telegram API:** Никогда не вызывайте `message.answer`, `message.reply`, `message.edit_text`, `message.edit_reply_markup`, `bot.edit_message_text`, `bot.get_chat` или `cb.answer` напрямую в `bot/telegram/handlers/`. Всегда используйте безопасные обертки из `bot/telegram/safe_api.py` (`safe_answer`, `safe_reply`, `safe_edit_text`, `safe_edit_text_by_id`, `safe_edit_markup`, `safe_get_chat`, `safe_answer_callback`), которые перехватывают `TelegramBadRequest`, `TelegramRetryAfter` и сетевые сбои.
-- **Защита от XSS/HTML-инъекций:** Любые имена пользователей из Telegram перед вставкой в HTML-сообщения обязаны проходить через `texts.escape_nick()` / `texts.format_nick()` или `html.escape()`.
+- **Защита от XSS/HTML-инъекций:** Имена из Telegram (и реплики с ними) хранятся и передаются сырыми — в моделях, базе, логах и тексте кнопок (кнопки — обычный текст). Экранируются только в `bot/telegram/ui/texts.py` в момент вставки в HTML (`html.escape`, внутри — `_h()`); сырой ник игрока даёт `texts.user_nick()`. Не экранируйте имя заранее: в кнопке будет видно `&amp;`, а обрезка может разрезать сущность.
 - **База данных:** SQL-запросы только параметризованные (`?`); схема меняется только новой миграцией в конце `MIGRATIONS` (`bot/storage/migrations.py`).
 
 ---

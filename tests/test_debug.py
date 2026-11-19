@@ -149,6 +149,7 @@ async def test_evil_name_is_escaped_in_card(stand):
     session = engine.get_session(CHAT_ID, CARD_ID)
     # Свой ID: иначе в топе оба бота-соперника склеиваются в одну строку под последним именем
     assert session.p2.id == debug.EVIL_OPPONENT_ID != debug.BOT_OPPONENT_ID
+    assert session.p2.name.startswith("<b>Tom & Jerry</b> 🤖")  # хранится сырым, экранируется только в карточке
 
     text = mock_edit.call_args.kwargs["text"]
     assert "&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;" in text

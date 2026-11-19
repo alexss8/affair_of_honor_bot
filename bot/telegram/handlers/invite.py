@@ -1,4 +1,3 @@
-import html
 import time
 
 from aiogram import F, Router
@@ -24,17 +23,17 @@ def _resolve_target(message: Message, repo: BaseRepository) -> tuple[int, str, b
     if message.reply_to_message and message.reply_to_message.from_user:
         if not message.reply_to_message.forum_topic_created:
             target = message.reply_to_message.from_user
-            return target.id, texts.escape_nick(target), target.is_bot
+            return target.id, texts.user_nick(target), target.is_bot
     if message.entities:
         for ent in message.entities:
             if ent.type == "text_mention" and ent.user:
-                return ent.user.id, texts.escape_nick(ent.user), ent.user.is_bot
+                return ent.user.id, texts.user_nick(ent.user), ent.user.is_bot
             if ent.type == "mention" and message.text:
                 mention_text = message.text[ent.offset : ent.offset + ent.length]
                 found = repo.get_user_by_username(message.chat.id, mention_text)
                 if found:
                     user_id, display_nick = found
-                    return user_id, html.escape(display_nick), False
+                    return user_id, display_nick, False
     return None
 
 
@@ -50,7 +49,7 @@ async def cmd_duel(message: Message, engine: DuelEngine, repo: BaseRepository):
             "чтобы я его запомнил).</i>",
         )
     p1 = message.from_user
-    p1_name = texts.escape_nick(p1)
+    p1_name = texts.user_nick(p1)
     p2_id, p2_name, p2_is_bot = target_data
     cid = message.chat.id
     if p1.id == p2_id or p2_is_bot:

@@ -31,7 +31,7 @@ async def cmd_cancel(message: Message, bot: Bot, engine: DuelEngine):
     session = engine.cancel_user_duel(message.chat.id, message.from_user.id)
     if not session:
         return await safe_reply(message, "У тебя сейчас нет активных дуэлей.")
-    await show_final_notice(bot, session, texts.render_cancelled(session, texts.escape_nick(message.from_user)))
+    await show_final_notice(bot, session, texts.render_cancelled(session, texts.user_nick(message.from_user)))
     await safe_reply(message, "🚫 Твоя дуэль с соперником успешно отменена. Вы оба снова свободны!")
 
 

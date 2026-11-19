@@ -5,7 +5,6 @@
 """
 
 import contextlib
-import html
 import logging
 import random
 from typing import Any
@@ -35,7 +34,7 @@ BOT_OPPONENT_ID = -1
 EVIL_OPPONENT_ID = -2
 _OPPONENTS = {
     DebugAction.BOT_DUEL: (BOT_OPPONENT_ID, "🤖 Бот-дуэлянт"),
-    DebugAction.EVIL_NAME_DUEL: (EVIL_OPPONENT_ID, html.escape("<b>Tom & Jerry</b> 🤖 " + "Я" * 40)),
+    DebugAction.EVIL_NAME_DUEL: (EVIL_OPPONENT_ID, "<b>Tom & Jerry</b> 🤖 " + "Я" * 40),
 }
 _OPPONENT_IDS = frozenset(opponent_id for opponent_id, _ in _OPPONENTS.values())
 FLOOD_RETRY_SEC = 30
@@ -90,7 +89,7 @@ async def handle_bot_duel(
         return
     opponent_id, opponent_name = _OPPONENTS[callback_data.action]
     session = engine.start_duel(
-        chat_id, card.message_id, cb.from_user.id, texts.escape_nick(cb.from_user), opponent_id, opponent_name
+        chat_id, card.message_id, cb.from_user.id, texts.user_nick(cb.from_user), opponent_id, opponent_name
     )
     await open_battle(card, session, engine, service, config.duel_timeout_sec)
 

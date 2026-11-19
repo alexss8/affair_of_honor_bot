@@ -8,6 +8,7 @@
   она пишет CREATE TABLE IF NOT EXISTS и не трогает существующие данные.
 """
 
+import html
 import sqlite3
 from collections.abc import Callable
 
@@ -49,10 +50,34 @@ def _v2_suspended_duels(conn: sqlite3.Connection) -> None:
     )
 
 
+# Колонки с текстом, который до 7.0 сохранялся экранированным для HTML.
+_ESCAPED_TEXT_COLUMNS = {
+    "stats": ("nickname",),
+    "suspended_duels": ("p1_name", "p2_name", "last_log"),
+    "suspended_invites": ("challenger_name", "target_name"),
+}
+
+
+def _v3_unescape_names(conn: sqlite3.Connection) -> None:
+    """Имена хранятся сырыми (этап 7.0): снимаем HTML-экранирование, которое старый код делал при записи.
+
+    Старый код экранировал каждое имя ровно один раз (html.escape), поэтому html.unescape восстанавливает
+    исходный текст точно; без «&» в значении экранировать было нечего.
+    """
+    for table, columns in _ESCAPED_TEXT_COLUMNS.items():
+        for column in columns:
+            rows = conn.execute(f"SELECT rowid, {column} FROM {table} WHERE {column} LIKE '%&%'").fetchall()
+            conn.executemany(
+                f"UPDATE {table} SET {column} = ? WHERE rowid = ?",
+                [(html.unescape(value), rowid) for rowid, value in rows],
+            )
+
+
 # Индекс + 1 = номер версии схемы.
 MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v1_base_schema,
     _v2_suspended_duels,
+    _v3_unescape_names,
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 

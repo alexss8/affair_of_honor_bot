@@ -7,18 +7,18 @@ from bot.services.duel_service import FinishedDuel
 FALLBACK_NICK = "Дуэлянт"
 
 
-def format_nick(username: str | None, first_name: str | None) -> str:
-    """Отображаемый ник (@username или имя), экранированный для HTML."""
-    raw = f"@{username}" if username else (first_name or FALLBACK_NICK)
-    return html.escape(raw)
+def user_nick(user) -> str:
+    """Отображаемый ник игрока (@username или имя) — сырой: экранируется только при вставке в HTML."""
+    return f"@{user.username}" if user.username else (user.first_name or FALLBACK_NICK)
 
 
-def escape_nick(user) -> str:
-    return format_nick(user.username, user.first_name)
+def _h(text: str) -> str:
+    """Сырой текст (ник, реплика раунда) для вставки в HTML-сообщение."""
+    return html.escape(text)
 
 
 def render_invite(p1_name: str, p2_name: str) -> str:
-    return f"🔥 <b>{p1_name}</b> вызывает <b>{p2_name}</b> на дуэль! ⚔️"
+    return f"🔥 <b>{_h(p1_name)}</b> вызывает <b>{_h(p2_name)}</b> на дуэль! ⚔️"
 
 
 INVITE_EXPIRED = "⌛ Вызов на дуэль истёк — соперник не ответил вовремя."
@@ -35,21 +35,22 @@ def render_invite_paused(invite: DuelInvite) -> str:
 
 def render_cancelled(session: DuelSession, canceler_name: str) -> str:
     return (
-        f"🚫 <b>ДУЭЛЬ ОТМЕНЕНА</b>\n\n<i>Бой между {session.p1.name} и {session.p2.name} "
-        f"аннулирован игроком {canceler_name} (без изменения рейтинга).</i>"
+        f"🚫 <b>ДУЭЛЬ ОТМЕНЕНА</b>\n\n<i>Бой между {_h(session.p1.name)} и {_h(session.p2.name)} "
+        f"аннулирован игроком {_h(canceler_name)} (без изменения рейтинга).</i>"
     )
 
 
 def render_interrupted(session: DuelSession) -> str:
     return (
-        f"⚠️ <b>БОЙ ПРЕРВАН</b>\n\n<i>Бой между {session.p1.name} и {session.p2.name} "
+        f"⚠️ <b>БОЙ ПРЕРВАН</b>\n\n<i>Бой между {_h(session.p1.name)} и {_h(session.p2.name)} "
         "прерван перезапуском бота, рейтинг не изменён.</i>"
     )
 
 
 def render_invite_interrupted(invite: DuelInvite) -> str:
     return (
-        f"⚠️ Вызов {invite.challenger_name} → {invite.target_name} снят: бот перезапускался. Брось вызов заново: /duel"
+        f"⚠️ Вызов {_h(invite.challenger_name)} → {_h(invite.target_name)} снят: бот перезапускался. "
+        "Брось вызов заново: /duel"
     )
 
 
@@ -57,18 +58,18 @@ def render_battle(session: DuelSession) -> str:
     def hp_bar(hp: int) -> str:
         return "❤️" * hp + "🖤" * (session.max_hp - hp)
 
-    log_block = f"<i>{session.last_log}</i>\n\n" if session.last_log else ""
+    log_block = f"<i>{_h(session.last_log)}</i>\n\n" if session.last_log else ""
 
     att_icon = "✅" if session.attacker.choice else "🔴"
     def_icon = "✅" if session.defender.choice else "🟢"
 
     return (
         f"⚔️ <b>ДУЭЛЬ</b> ⚔️\n\n"
-        f"{session.p1.name}: {hp_bar(session.p1.hp)}\n"
-        f"{session.p2.name}: {hp_bar(session.p2.hp)}\n\n"
+        f"{_h(session.p1.name)}: {hp_bar(session.p1.hp)}\n"
+        f"{_h(session.p2.name)}: {hp_bar(session.p2.hp)}\n\n"
         f"{log_block}"
-        f"{att_icon} Атакует: <b>{session.attacker.name}</b>\n"
-        f"{def_icon} Защищается: <b>{session.defender.name}</b>"
+        f"{att_icon} Атакует: <b>{_h(session.attacker.name)}</b>\n"
+        f"{def_icon} Защищается: <b>{_h(session.defender.name)}</b>"
     )
 
 
@@ -79,7 +80,7 @@ def render_top(stats: list[PlayerStats], limit: int = 10) -> str:
     lines = [f"🏆 <b>ТОП-{limit} ДУЭЛЯНТОВ ЧАТА</b> 🏆\n"]
     for i, s in enumerate(stats, 1):
         prefix = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
-        lines.append(f"{prefix} {s.nickname} — <b>{s.wins}</b> побед / {s.losses} пор. ({s.winrate}%)")
+        lines.append(f"{prefix} {_h(s.nickname)} — <b>{s.wins}</b> побед / {s.losses} пор. ({s.winrate}%)")
     return "\n".join(lines)
 
 
@@ -88,8 +89,8 @@ def render_victory(
 ) -> str:
     return (
         f"{icon} <b>ДУЭЛЬ #{duel_id} ОКОНЧЕНА!</b>\n\n"
-        f"<i>{reason}</i>\n\n"
-        f"Победитель: <b>{winner.name}</b> (+1 в рейтинг)\n\n"
+        f"<i>{_h(reason)}</i>\n\n"
+        f"Победитель: <b>{_h(winner.name)}</b> (+1 в рейтинг)\n\n"
         f"{render_top(stats, limit)}"
     )
 
@@ -97,7 +98,7 @@ def render_victory(
 def render_draw(reason: str, stats: list[PlayerStats], limit: int = 10, icon: str = "🤝") -> str:
     return (
         f"{icon} <b>ДУЭЛЬ ОКОНЧЕНА ВНИЧЬЮ!</b>\n\n"
-        f"<i>{reason}</i>\n\n"
+        f"<i>{_h(reason)}</i>\n\n"
         f"Рейтинг игроков не изменился.\n\n"
         f"{render_top(stats, limit)}"
     )

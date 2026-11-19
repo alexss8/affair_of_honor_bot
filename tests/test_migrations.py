@@ -57,6 +57,43 @@ def test_legacy_database_is_upgraded_without_data_loss(tmp_path):
     assert "suspended_duels" in _tables(db)
 
 
+def test_html_escaped_names_are_unescaped(tmp_path):
+    """До 7.0 имена хранились экранированными для HTML; миграция возвращает их сырыми."""
+    db = tmp_path / "escaped.db"
+    with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS[:2]):
+        SQLiteRepository(str(db)).init()
+    escaped = "&lt;b&gt;Tom &amp; Jerry&lt;/b&gt; O&#x27;Brien"
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO stats VALUES (-1001, 10, ?, 3, 1)", (escaped,))
+        conn.execute("INSERT INTO stats VALUES (-1001, 20, '@alice', 1, 3)")
+        conn.execute(
+            "INSERT INTO suspended_duels (chat_id, message_id, p1_id, p1_name, p2_id, p2_name, last_log) "
+            "VALUES (-1001, 500, 10, ?, 20, '@alice', ?)",
+            (escaped, f"🩸 {escaped} бьёт сверху"),
+        )
+        conn.execute(
+            "INSERT INTO suspended_invites "
+            "(chat_id, message_id, challenger_id, challenger_name, target_id, target_name) "
+            "VALUES (-1001, 501, 20, '@alice', 10, ?)",
+            (escaped,),
+        )
+    conn.close()
+
+    SQLiteRepository(str(db)).init()
+
+    raw = "<b>Tom & Jerry</b> O'Brien"
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT nickname FROM stats ORDER BY user_id").fetchall() == [(raw,), ("@alice",)]
+        assert conn.execute("SELECT p1_name, p2_name, last_log FROM suspended_duels").fetchall() == [
+            (raw, "@alice", f"🩸 {raw} бьёт сверху")
+        ]
+        assert conn.execute("SELECT challenger_name, target_name FROM suspended_invites").fetchall() == [
+            ("@alice", raw)
+        ]
+    conn.close()
+    assert _version(db) == SCHEMA_VERSION
+
+
 def test_init_is_idempotent(tmp_path):
     db = tmp_path / "twice.db"
     SQLiteRepository(str(db)).init()

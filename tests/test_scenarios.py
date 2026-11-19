@@ -109,6 +109,32 @@ async def test_duel_command_registers_invite(bot_env):
     assert (invite.target_id, invite.target_name) == (20, "@bob")
 
 
+async def test_names_are_stored_raw_and_escaped_in_cards(bot_env):
+    dp, bot, engine, repo = bot_env
+    tom = TROLL.model_copy(update={"first_name": "Tom & <Jerry>"})
+    sent = Message(message_id=777, date=datetime.datetime.now(), chat=Chat(id=CHAT_ID, type="supergroup"), text="x")
+    entities = [MessageEntity(type="bot_command", offset=0, length=5)]
+    reply_to = Message(
+        message_id=1, date=datetime.datetime.now(), chat=Chat(id=CHAT_ID, type="supergroup"), from_user=BOB, text="hi"
+    )
+
+    with patch.object(Message, "answer", new=AsyncMock(return_value=sent)) as mock_answer:
+        await dp.feed_update(bot, make_msg_update(1, tom, "/duel", entities=entities, reply_to=reply_to))
+
+    assert engine.get_invite(CHAT_ID, 777).challenger_name == "Tom & <Jerry>"
+    assert "Tom &amp; &lt;Jerry&gt;" in mock_answer.call_args.args[0]
+
+    with patch.object(Message, "edit_text", new=AsyncMock()) as mock_edit:
+        await dp.feed_update(bot, make_callback_update(2, BOB, ACCEPT, msg_id=777))
+        session = engine.get_session(CHAT_ID, 777)
+        assert session.p1.name == "Tom & <Jerry>"
+        assert "Tom &amp; &lt;Jerry&gt;" in mock_edit.call_args.kwargs["text"]
+        await dp.feed_update(bot, make_callback_update(3, BOB, SURRENDER, msg_id=777))
+        await dp.feed_update(bot, make_callback_update(4, BOB, SURRENDER, msg_id=777))
+
+    assert [s.nickname for s in repo.get_top(CHAT_ID)] == ["Tom & <Jerry>", "@bob"]
+
+
 async def test_challenge_by_username_and_text_mention(bot_env):
     dp, bot, _, repo = bot_env
     hidden_user = ALICE.model_copy(update={"id": 30, "first_name": "Скрытный Гном", "username": None})

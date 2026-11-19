@@ -12,13 +12,13 @@ from helpers import TOKEN
 import bot.__main__ as bot_main
 from bot.config import Config
 from bot.domain.engine import DuelEngine
-from bot.domain.models import ChoiceResult, DuelPhase, MoveKind, OutcomeKind, Player, Zone
+from bot.domain.models import ChoiceResult, DuelInvite, DuelPhase, MoveKind, OutcomeKind, Player, Zone
 from bot.services.duel_service import DuelService
 from bot.storage.queued_repo import QueuedRepository
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.callbacks import InviteAction, InviteCb, MoveCb
 from bot.telegram.handlers import router
-from bot.telegram.ui import texts
+from bot.telegram.ui import keyboards, texts
 
 LOGGER = logging.getLogger("test_logger")
 
@@ -446,6 +446,60 @@ def test_render_outcome_for_every_kind(engine, service):
     text = texts.render_outcome(service.finish(outcome), 10)
     assert "🏆 <b>ДУЭЛЬ #3 ОКОНЧЕНА!</b>" in text and s4.last_log in text
     assert "Победитель: <b>Alice</b>" in text
+
+
+EVIL = "<i>x</i> & y"
+EVIL_ESCAPED = "&lt;i&gt;x&lt;/i&gt; &amp; y"
+
+
+def _assert_shown_literally(text: str) -> None:
+    assert EVIL_ESCAPED in text
+    assert EVIL not in text
+
+
+def test_cards_escape_raw_names(engine, service):
+    invite = DuelInvite(1, 50, 10, EVIL, 20, "Bob", expires_at=100.0)
+    for text in (
+        texts.render_invite(EVIL, "Bob"),
+        texts.render_invite_paused(invite),
+        texts.render_invite_interrupted(invite),
+    ):
+        _assert_shown_literally(text)
+
+    session = engine.start_duel(1, 1, 10, EVIL, 20, "Bob")
+    assert session.p1.name == EVIL
+    for text in (
+        texts.render_battle(session),
+        texts.render_paused(session),
+        texts.render_cancelled(session, EVIL),
+        texts.render_interrupted(session),
+    ):
+        _assert_shown_literally(text)
+
+    surrender = engine.start_duel(1, 2, 10, "Alice", 20, EVIL)
+    _assert_shown_literally(texts.render_outcome(service.finish(engine.surrender(surrender, surrender.p2)), 10))
+
+    timeout = engine.start_duel(1, 3, 10, "Alice", 20, EVIL)
+    timeout.p1.hp = 1
+    _assert_shown_literally(texts.render_outcome(service.finish(engine.resolve_timeout(timeout)), 10))
+
+    knockout = engine.start_duel(1, 4, 10, EVIL, 20, "Bob")
+    outcome = None
+    while outcome is None:
+        outcome = play_round(engine, knockout, Zone.TOP, Zone.BOT)
+    assert EVIL in knockout.last_log
+    finished = service.finish(outcome)
+    assert EVIL in [s.nickname for s in finished.top]
+    _assert_shown_literally(texts.render_outcome(finished, 10))
+    _assert_shown_literally(texts.render_top(finished.top))
+
+
+def test_button_shows_raw_name(engine):
+    session = engine.start_duel(1, 1, 10, "Alice", 20, EVIL)
+    engine.choose(session, session.p1, MoveKind.ATTACK, Zone.TOP)
+
+    footer = keyboards.battle_keyboard(session).inline_keyboard[-1][0].text
+    assert EVIL in footer
 
 
 @pytest.mark.parametrize(
