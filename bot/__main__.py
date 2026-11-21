@@ -1,9 +1,11 @@
 import asyncio
+import logging
 import sys
 import time
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand, BotCommandScopeAllChatAdministrators, BotCommandScopeAllGroupChats
+from aiogram.exceptions import TelegramAPIError
+from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeChat
 
 from bot.config import EXIT_CONFIG_ERROR, Config, ConfigError, load_config
 from bot.domain.engine import DuelEngine
@@ -25,6 +27,21 @@ def create_bot(token: str, limiter: RateLimiter, *, trace: bool = False) -> Bot:
         bot.session.middleware(RequestTracer(limiter))  # первым — снаружи лимитера, время включает ожидание
     bot.session.middleware(limiter)
     return bot
+
+
+async def _set_owner_menu(bot: Bot, admin_id: int, logger: logging.Logger) -> None:
+    """Меню служебных команд — только в личке владельца с ботом.
+
+    Telegram отказывает, если владелец ещё не писал боту в личку; бот при этом должен стартовать.
+    """
+    commands = [
+        BotCommand(command="admin", description="Служебные команды"),
+        BotCommand(command="status", description="Состояние бота"),
+    ]
+    try:
+        await bot.set_my_commands(commands=commands, scope=BotCommandScopeChat(chat_id=admin_id))
+    except TelegramAPIError as e:
+        logger.warning("Меню владельца не установлено (напишите боту в личку и перезапустите): %s", e)
 
 
 async def main(config: Config) -> None:
@@ -61,11 +78,8 @@ async def main(config: Config) -> None:
             BotCommand(command="help", description="Правила игры и команды"),
         ]
         await bot.set_my_commands(commands=group_commands, scope=BotCommandScopeAllGroupChats())
-        # Group admins see this scope instead of the one above, so it repeats the player commands.
-        await bot.set_my_commands(
-            commands=[*group_commands, BotCommand(command="resettop", description="Обнулить топ чата")],
-            scope=BotCommandScopeAllChatAdministrators(),
-        )
+        if config.admin_id:
+            await _set_owner_menu(bot, config.admin_id, logger)
 
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info(

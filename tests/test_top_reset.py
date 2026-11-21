@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.exceptions import TelegramNetworkError
-from aiogram.methods import GetChatMember
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
+from aiogram.methods import GetChatMember, SetMyCommands
 from aiogram.types import (
-    BotCommandScopeAllChatAdministrators,
     BotCommandScopeAllGroupChats,
+    BotCommandScopeChat,
     ChatMemberAdministrator,
     ChatMemberMember,
     Message,
@@ -34,7 +34,7 @@ from bot.domain.engine import DuelEngine
 from bot.domain.models import Player
 from bot.storage.sqlite_repo import SQLiteRepository
 from bot.telegram.callbacks import TopResetAction, TopResetCb
-from bot.telegram.handlers import router
+from bot.telegram.handlers import debug, router
 from bot.telegram.ui import texts
 
 OTHER_CHAT = -2002
@@ -181,27 +181,91 @@ async def test_rights_unknown_when_telegram_fails(env):
     assert len(repo.get_top(CHAT_ID)) == 2
 
 
-async def test_resettop_is_in_the_menu_of_group_admins_only(tmp_path):
-    config = Config(bot_token=TOKEN, db_path=str(tmp_path / "main.db"), log_file=str(tmp_path / "main.log"))
-    set_commands = AsyncMock()
+PLAYER_COMMANDS = ["duel", "cancel", "top", "help"]
+SERVICE_COMMANDS = ("/resettop", "/status", "/admin", "/debug")
 
+
+async def _start_bot(tmp_path, admin_id: int | None, set_commands: AsyncMock) -> AsyncMock:
+    """Запускает main() без сети; возвращает подменённый start_polling."""
+    config = Config(
+        bot_token=TOKEN, admin_id=admin_id, db_path=str(tmp_path / "main.db"), log_file=str(tmp_path / "main.log")
+    )
+    start_polling = AsyncMock()
     with (
         patch.object(bot_main, "setup_logger", return_value=logging.getLogger("top_reset")),
         patch.object(Bot, "set_my_commands", set_commands),
         patch.object(Bot, "delete_webhook", AsyncMock()),
-        patch.object(Dispatcher, "start_polling", AsyncMock()),
+        patch.object(Dispatcher, "start_polling", start_polling),
     ):
         try:
             await bot_main.main(config)
         finally:
             router._parent_router = None
+    return start_polling
 
-    menus = {
-        type(c.kwargs["scope"]): [cmd.command for cmd in c.kwargs["commands"]] for c in set_commands.await_args_list
+
+def _menus(set_commands: AsyncMock) -> dict:
+    return {
+        c.kwargs["scope"].model_dump_json(exclude_none=True): [cmd.command for cmd in c.kwargs["commands"]]
+        for c in set_commands.await_args_list
     }
-    players = ["duel", "cancel", "top", "help"]
-    assert menus == {
-        BotCommandScopeAllGroupChats: players,
-        # Telegram shows admins this menu instead of the group one, so player commands must stay in it.
-        BotCommandScopeAllChatAdministrators: [*players, "resettop"],
-    }
+
+
+GROUP_SCOPE = BotCommandScopeAllGroupChats().model_dump_json(exclude_none=True)
+OWNER_SCOPE = BotCommandScopeChat(chat_id=OWNER_ID).model_dump_json(exclude_none=True)
+
+
+async def test_service_commands_are_only_in_owner_private_menu(tmp_path):
+    set_commands = AsyncMock()
+    await _start_bot(tmp_path, OWNER_ID, set_commands)
+
+    assert _menus(set_commands) == {GROUP_SCOPE: PLAYER_COMMANDS, OWNER_SCOPE: ["admin", "status"]}
+
+
+async def test_no_owner_menu_without_admin_id(tmp_path):
+    set_commands = AsyncMock()
+    await _start_bot(tmp_path, None, set_commands)
+
+    assert _menus(set_commands) == {GROUP_SCOPE: PLAYER_COMMANDS}
+
+
+async def test_bot_starts_when_owner_never_wrote_to_bot(tmp_path):
+    async def set_my_commands(commands, scope):
+        if isinstance(scope, BotCommandScopeChat):
+            raise TelegramBadRequest(SetMyCommands(commands=commands, scope=scope), "Bad Request: chat not found")
+
+    start_polling = await _start_bot(tmp_path, OWNER_ID, AsyncMock(side_effect=set_my_commands))
+
+    start_polling.assert_awaited_once()
+
+
+def test_help_has_no_service_commands():
+    text = texts.render_help(default_hp=3, top_limit=10, duel_timeout_sec=300)
+
+    assert [cmd for cmd in SERVICE_COMMANDS if cmd in text] == []
+
+
+@pytest.mark.parametrize("debug_tools", [False, True])
+async def test_owner_gets_service_commands_in_private(tmp_path, debug_tools):
+    repo = SQLiteRepository(str(tmp_path / "owner.db"))
+    repo.init()
+    logger = logging.getLogger("top_reset")
+    config = Config(bot_token=TOKEN, admin_id=OWNER_ID, debug_tools=debug_tools)
+    bot = AsyncMock(spec=Bot)
+    bot.id = 999
+    dp = build_dispatcher(config, repo, DuelEngine(logger=logger), logger)
+    owner = User(id=OWNER_ID, is_bot=False, first_name="Owner")
+    try:
+        await dp.feed_update(bot, make_msg_update(1, owner, "/admin", private=True))
+        await dp.feed_update(bot, make_msg_update(2, ALICE, "/admin", private=True))  # not the owner
+        await dp.feed_update(bot, make_msg_update(3, owner, "/admin"))  # in a group
+    finally:
+        router._parent_router = None
+        debug.router._parent_router = None
+
+    (sent,) = sent_messages(bot)
+    assert sent.chat_id == OWNER_ID
+    assert sent.text == texts.render_owner_commands(debug_tools)
+    assert ("/debug" in sent.text) is debug_tools
+    assert "/resettop" in sent.text
+    assert "/status" in sent.text

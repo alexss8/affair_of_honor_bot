@@ -120,8 +120,10 @@ def make_msg_update(
     entities: list[MessageEntity] | None = None,
     reply_to: Message | None = None,
     chat_id: int = CHAT_ID,
+    private: bool = False,
 ) -> Update:
-    chat = Chat(id=chat_id, type="supergroup", title="Test Group")
+    """Сообщение в тестовой группе; private=True — в личке пользователя с ботом (chat_id = user.id)."""
+    chat = Chat(id=user.id, type="private") if private else Chat(id=chat_id, type="supergroup", title="Test Group")
     msg = Message(
         message_id=100 + update_id,
         date=datetime.datetime.now(),

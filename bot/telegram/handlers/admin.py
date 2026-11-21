@@ -22,6 +22,14 @@ from bot.telegram.ui import keyboards, texts
 
 router = Router(name="admin")
 
+
+@router.message(Command("admin"), F.chat.type == "private")
+async def cmd_owner_commands(message: Message, config: Config):
+    if not config.admin_id or message.from_user.id != config.admin_id:
+        return
+    await safe_answer(message, texts.render_owner_commands(config.debug_tools))
+
+
 _GROUP_ADMIN_STATUSES = {ChatMemberStatus.CREATOR, ChatMemberStatus.ADMINISTRATOR}
 
 
