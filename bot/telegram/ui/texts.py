@@ -159,6 +159,18 @@ def render_debug_already_paused(wait_sec: float) -> str:
     return f"Чат уже на паузе ещё ~{math.ceil(wait_sec)} с — новая пауза не нужна."
 
 
+TOP_RESET_DENIED = "🛡 Обнулять топ могут только админы группы."
+TOP_RESET_NOT_YOURS = "Эта кнопка не для вас."
+TOP_RESET_CONFIRM = (
+    "🧹 <b>Обнулить топ этого чата?</b>\n\n<i>Победы и поражения всех игроков будут стёрты, вернуть их нельзя.</i>"
+)
+TOP_RESET_CANCELLED = "↩️ Сброс топа отменён."
+
+
+def render_top_reset_done(admin_name: str) -> str:
+    return f"🧹 <b>Топ обнулён</b> админом {_name(admin_name)}. Ристалище ждёт новых героев! ⚔️"
+
+
 ERROR_NOTICE = "⚠️ Что-то сломалось на нашей стороне. Попробуй ещё раз; если бой завис — /cancel"
 
 
@@ -206,5 +218,6 @@ def render_help(default_hp: int, top_limit: int, duel_timeout_sec: float) -> str
         "/duel @ник — вызвать на бой\n"
         "/cancel — отменить свой текущий бой (если соперник пропал)\n"
         f"/top — топ-{top_limit} дуэлянтов чата\n"
-        "/help — показать эту инструкцию"
+        "/help — показать эту инструкцию\n"
+        "/resettop — обнулить топ чата (для админов)"
     )

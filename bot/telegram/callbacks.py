@@ -38,3 +38,15 @@ class DebugCb(CallbackData, prefix="dbg"):
     """Кнопки отладочного стенда (/debug, только при DEBUG_TOOLS)."""
 
     action: DebugAction
+
+
+class TopResetAction(StrEnum):
+    CONFIRM = "confirm"
+    CANCEL = "cancel"
+
+
+class TopResetCb(CallbackData, prefix="topreset"):
+    """Кнопки подтверждения сброса топа (/resettop); нажать может только admin_id — кто вызвал команду."""
+
+    action: TopResetAction
+    admin_id: int

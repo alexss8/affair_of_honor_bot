@@ -1,7 +1,16 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.domain.models import DuelSession, MoveKind, Zone
-from bot.telegram.callbacks import DebugAction, DebugCb, InviteAction, InviteCb, MoveCb, SurrenderCb
+from bot.telegram.callbacks import (
+    DebugAction,
+    DebugCb,
+    InviteAction,
+    InviteCb,
+    MoveCb,
+    SurrenderCb,
+    TopResetAction,
+    TopResetCb,
+)
 from bot.telegram.ui.texts import short_name
 
 
@@ -31,6 +40,15 @@ def invite_keyboard() -> InlineKeyboardMarkup:
                 ),
             ],
         ]
+    )
+
+
+def top_reset_keyboard(admin_id: int) -> InlineKeyboardMarkup:
+    def button(text: str, action: TopResetAction) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=text, callback_data=TopResetCb(action=action, admin_id=admin_id).pack())
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[button("🧹 Да, обнулить", TopResetAction.CONFIRM), button("Отмена", TopResetAction.CANCEL)]]
     )
 
 

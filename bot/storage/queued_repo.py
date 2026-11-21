@@ -49,6 +49,9 @@ class QueuedRepository:
     def get_top(self, chat_id: int, limit: int = 10) -> list[PlayerStats]:
         return self.repo.get_top(chat_id, limit)
 
+    def reset_top(self, chat_id: int) -> int:
+        return self.repo.reset_top(chat_id)
+
     def save_suspended(self, sessions: list[DuelSession], invites: list[DuelInvite], now: float) -> None:
         self.repo.save_suspended(sessions, invites, now)
 

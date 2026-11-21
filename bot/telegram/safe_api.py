@@ -12,7 +12,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
     TelegramServerError,
 )
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, ChatMemberUnion, InlineKeyboardMarkup, Message
 
 logger = logging.getLogger("duel_bot")
 
@@ -138,3 +138,17 @@ async def safe_reply(message: Message, text: str) -> None:
             return
         except (TelegramForbiddenError, TelegramNetworkError, TelegramServerError):
             return
+
+
+async def safe_get_chat_member(bot: Bot, chat_id: int, user_id: int) -> ChatMemberUnion | None:
+    """Статус участника чата. Один повтор при 429; при любой ошибке — None (права не подтверждены)."""
+    for attempt in range(2):
+        try:
+            return await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+        except TelegramRetryAfter as e:
+            if attempt == 0:  # запись о паузе пишет лимитер (rate_limiter.py)
+                await asyncio.sleep(e.retry_after)
+        except (TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError, TelegramServerError) as e:
+            logger.warning("Не удалось получить статус участника чата: %s", e)
+            return None
+    return None

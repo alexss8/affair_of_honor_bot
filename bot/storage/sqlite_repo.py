@@ -99,6 +99,16 @@ class SQLiteRepository:
         )
         return [PlayerStats(nick, wins, losses) for nick, wins, losses in cur.fetchall()]
 
+    def reset_top(self, chat_id: int) -> int:
+        """Стирает рейтинг чата (таблица stats); история боёв остаётся.
+
+        Returns:
+            Сколько игроков убрано из топа.
+        """
+        conn = self._get_conn()
+        with conn:
+            return conn.execute("DELETE FROM stats WHERE chat_id = ?", (chat_id,)).rowcount
+
     def save_suspended(self, sessions: list[DuelSession], invites: list[DuelInvite], now: float) -> None:
         """Сохраняет бои и вызовы при остановке; таймеры замораживаются (храним остаток времени)."""
         duel_rows = [

@@ -8,7 +8,15 @@ import pytest
 BOT = Path(__file__).resolve().parents[1] / "bot"
 
 # Methods that handlers must reach only through bot/telegram/safe_api.py.
-UNSAFE_TELEGRAM_CALLS = {"answer", "reply", "edit_text", "edit_reply_markup", "edit_message_text", "get_chat"}
+UNSAFE_TELEGRAM_CALLS = {
+    "answer",
+    "reply",
+    "edit_text",
+    "edit_reply_markup",
+    "edit_message_text",
+    "get_chat",
+    "get_chat_member",
+}
 
 
 def python_files(package: str) -> list[Path]:

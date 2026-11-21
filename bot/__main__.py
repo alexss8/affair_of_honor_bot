@@ -3,7 +3,7 @@ import sys
 import time
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand, BotCommandScopeAllGroupChats
+from aiogram.types import BotCommand, BotCommandScopeAllChatAdministrators, BotCommandScopeAllGroupChats
 
 from bot.config import EXIT_CONFIG_ERROR, Config, ConfigError, load_config
 from bot.domain.engine import DuelEngine
@@ -54,14 +54,17 @@ async def main(config: Config) -> None:
     include_handlers(dp, config)
 
     try:
+        group_commands = [
+            BotCommand(command="duel", description="Вызвать на дуэль (@ник или Reply)"),
+            BotCommand(command="cancel", description="Отменить свою зависшую дуэль"),
+            BotCommand(command="top", description=f"Топ-{config.top_limit} дуэлянтов чата"),
+            BotCommand(command="help", description="Правила игры и команды"),
+        ]
+        await bot.set_my_commands(commands=group_commands, scope=BotCommandScopeAllGroupChats())
+        # Group admins see this scope instead of the one above, so it repeats the player commands.
         await bot.set_my_commands(
-            commands=[
-                BotCommand(command="duel", description="Вызвать на дуэль (@ник или Reply)"),
-                BotCommand(command="cancel", description="Отменить свою зависшую дуэль"),
-                BotCommand(command="top", description=f"Топ-{config.top_limit} дуэлянтов чата"),
-                BotCommand(command="help", description="Правила игры и команды"),
-            ],
-            scope=BotCommandScopeAllGroupChats(),
+            commands=[*group_commands, BotCommand(command="resettop", description="Обнулить топ чата")],
+            scope=BotCommandScopeAllChatAdministrators(),
         )
 
         await bot.delete_webhook(drop_pending_updates=True)
