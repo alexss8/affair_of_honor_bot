@@ -3,7 +3,7 @@
 from aiogram import Dispatcher, Router
 
 from bot.config import Config
-from bot.telegram.handlers import admin, battle, common, debug, errors, fallback, invite, lifecycle
+from bot.telegram.handlers import admin, battle, common, debug, errors, fallback, invite, lifecycle, tournament
 from bot.telegram.middlewares import cache_user_middleware, log_context_middleware
 
 router = Router(name="root")
@@ -17,6 +17,7 @@ router.include_routers(
     lifecycle.router,
     common.router,
     admin.router,
+    tournament.router,
     invite.router,
     battle.router,
     fallback.router,

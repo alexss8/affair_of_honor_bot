@@ -2,7 +2,17 @@ import os
 import re
 import sqlite3
 
-from bot.domain.models import DuelInvite, DuelSession, Player, PlayerStats, Zone
+from bot.domain.models import (
+    DuelInvite,
+    DuelSession,
+    Player,
+    PlayerStats,
+    RatingChange,
+    Tournament,
+    TournamentStanding,
+    Zone,
+)
+from bot.domain.rating import START_RATING, elo_delta
 from bot.storage.migrations import migrate
 
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
@@ -108,6 +118,86 @@ class SQLiteRepository:
         conn = self._get_conn()
         with conn:
             return conn.execute("DELETE FROM stats WHERE chat_id = ?", (chat_id,)).rowcount
+
+    def start_tournament(self, chat_id: int, title: str) -> Tournament | None:
+        """Открывает турнир в чате. Returns: турнир или None, если в чате уже открыт другой."""
+        conn = self._get_conn()
+        try:
+            with conn:
+                cur = conn.execute("INSERT INTO tournaments (chat_id, title) VALUES (?, ?)", (chat_id, _text(title)))
+        except sqlite3.IntegrityError:  # unique index: one open tournament per chat
+            return None
+        return Tournament(cur.lastrowid, chat_id, _text(title))
+
+    def get_active_tournament(self, chat_id: int) -> Tournament | None:
+        row = (
+            self._get_conn()
+            .execute("SELECT tournament_id, title FROM tournaments WHERE chat_id = ? AND ended_at IS NULL", (chat_id,))
+            .fetchone()
+        )
+        return Tournament(row[0], chat_id, row[1]) if row else None
+
+    def end_tournament(self, chat_id: int) -> Tournament | None:
+        """Закрывает открытый турнир чата; таблица остаётся в базе. Returns: закрытый турнир или None."""
+        tournament = self.get_active_tournament(chat_id)
+        if tournament is None:
+            return None
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                "UPDATE tournaments SET ended_at = CURRENT_TIMESTAMP WHERE tournament_id = ?",
+                (tournament.tournament_id,),
+            )
+        return tournament
+
+    def record_tournament_duel(self, chat_id: int, winner: Player, loser: Player) -> RatingChange | None:
+        """Пересчитывает Elo участников открытого турнира чата. Без турнира ничего не пишет и возвращает None."""
+        tournament = self.get_active_tournament(chat_id)
+        if tournament is None:
+            return None
+        conn = self._get_conn()
+        with conn:
+            winner_before = self._tournament_rating(conn, tournament.tournament_id, winner.id)
+            loser_before = self._tournament_rating(conn, tournament.tournament_id, loser.id)
+            delta = elo_delta(winner_before, loser_before)
+            # Every duel changes both ratings, so each player gets a fresh "reached at" number.
+            last_seq = conn.execute(
+                "SELECT COALESCE(MAX(rating_seq), 0) FROM tournament_ratings WHERE tournament_id = ?",
+                (tournament.tournament_id,),
+            ).fetchone()[0]
+            for player, rating, w_inc, l_inc, seq in (
+                (winner, winner_before + delta, 1, 0, last_seq + 1),
+                (loser, loser_before - delta, 0, 1, last_seq + 2),
+            ):
+                conn.execute(
+                    "INSERT INTO tournament_ratings "
+                    "(tournament_id, user_id, nickname, rating, wins, losses, rating_seq) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(tournament_id, user_id) DO UPDATE SET "
+                    "nickname = excluded.nickname, rating = excluded.rating, rating_seq = excluded.rating_seq, "
+                    "wins = wins + excluded.wins, losses = losses + excluded.losses",
+                    (tournament.tournament_id, player.id, _text(player.name), rating, w_inc, l_inc, seq),
+                )
+        return RatingChange(tournament.title, winner_before + delta, loser_before - delta, delta)
+
+    @staticmethod
+    def _tournament_rating(conn: sqlite3.Connection, tournament_id: int, user_id: int) -> int:
+        row = conn.execute(
+            "SELECT rating FROM tournament_ratings WHERE tournament_id = ? AND user_id = ?", (tournament_id, user_id)
+        ).fetchone()
+        return row[0] if row else START_RATING
+
+    def get_tournament_standings(self, tournament_id: int, limit: int = 10) -> list[TournamentStanding]:
+        """Таблица турнира: Elo → победы минус поражения → победы → кто раньше достиг своего рейтинга."""
+        rows = (
+            self._get_conn()
+            .execute(
+                "SELECT nickname, rating, wins, losses FROM tournament_ratings WHERE tournament_id = ? "
+                "ORDER BY rating DESC, wins - losses DESC, wins DESC, rating_seq ASC LIMIT ?",
+                (tournament_id, limit),
+            )
+            .fetchall()
+        )
+        return [TournamentStanding(*row) for row in rows]
 
     def save_suspended(self, sessions: list[DuelSession], invites: list[DuelInvite], now: float) -> None:
         """Сохраняет бои и вызовы при остановке; таймеры замораживаются (храним остаток времени)."""

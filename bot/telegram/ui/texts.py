@@ -1,7 +1,16 @@
 import html
 import math
 
-from bot.domain.models import DuelInvite, DuelSession, OutcomeKind, Player, PlayerStats
+from bot.domain.models import (
+    DuelInvite,
+    DuelSession,
+    OutcomeKind,
+    Player,
+    PlayerStats,
+    RatingChange,
+    TournamentStanding,
+)
+from bot.domain.rating import START_RATING
 from bot.services.duel_service import FinishedDuel
 
 FALLBACK_NICK = "Дуэлянт"
@@ -102,13 +111,28 @@ def render_top(stats: list[PlayerStats], limit: int = 10) -> str:
 
 
 def render_victory(
-    duel_id: int, winner: Player, reason: str, stats: list[PlayerStats], limit: int = 10, icon: str = "🏆"
+    duel_id: int,
+    winner: Player,
+    reason: str,
+    stats: list[PlayerStats],
+    limit: int = 10,
+    icon: str = "🏆",
+    rating_line: str = "",
 ) -> str:
     return (
         f"{icon} <b>ДУЭЛЬ #{duel_id} ОКОНЧЕНА!</b>\n\n"
         f"<i>{_h(reason)}</i>\n\n"
-        f"Победитель: <b>{_name(winner.name)}</b> (+1 в рейтинг)\n\n"
+        f"Победитель: <b>{_name(winner.name)}</b> (+1 в рейтинг)\n"
+        f"{rating_line}\n"
         f"{render_top(stats, limit)}"
+    )
+
+
+def render_rating_change(change: RatingChange, winner: Player, loser: Player) -> str:
+    """Строка итога боя о турнирном Elo (с переводом строки в конце)."""
+    return (
+        f"🏟 Турнир «{_h(change.title)}»: {_name(winner.name)} <b>{change.winner_rating}</b> (+{change.delta}) · "
+        f"{_name(loser.name)} <b>{change.loser_rating}</b> (−{change.delta})\n"
     )
 
 
@@ -138,7 +162,9 @@ def render_outcome(finished: FinishedDuel, limit: int) -> str:
         icon = "⏰"
     else:
         reason, icon = outcome.session.last_log, "🏆"
-    return render_victory(finished.duel_id, winner, reason, finished.top, limit, icon=icon)
+    change = finished.rating_change
+    rating_line = render_rating_change(change, winner, loser) if change else ""
+    return render_victory(finished.duel_id, winner, reason, finished.top, limit, icon=icon, rating_line=rating_line)
 
 
 DEBUG_MENU = (
@@ -171,6 +197,48 @@ def render_top_reset_done(admin_name: str) -> str:
     return f"🧹 <b>Топ обнулён</b> админом {_name(admin_name)}. Ристалище ждёт новых героев! ⚔️"
 
 
+TOURNAMENT_TITLE_MAX = 40
+TOURNAMENT_DENIED = "🛡 Открывать и закрывать турнир могут только админы группы."
+NO_TOURNAMENT = "🏟 Сейчас в чате нет открытого турнира."
+TOURNAMENT_END_CANCELLED = "↩️ Турнир продолжается."
+TOURNAMENT_ALREADY_CLOSED = "🏁 Этот турнир уже закрыт."
+
+
+def render_tournament_started(title: str, admin_name: str) -> str:
+    return (
+        f"🏟 <b>Турнир «{_h(title)}» открыт!</b> Открыл админ {_name(admin_name)}.\n\n"
+        "Каждая дуэль в чате теперь идёт и в общий топ, и в таблицу турнира. "
+        f"У всех на старте {START_RATING} очков: победа над сильным даёт много очков, над слабым — мало, "
+        "а поражение слабому стоит дорого. Таблица турнира: /ttop"
+    )
+
+
+def render_tournament_already_open(title: str) -> str:
+    return f"🏟 В чате уже идёт турнир «{_h(title)}». Сначала его нужно закрыть."
+
+
+def render_tournament_end_confirm(title: str) -> str:
+    return (
+        f"🏁 <b>Закрыть турнир «{_h(title)}»?</b>\n\n"
+        "<i>Таблица будет зафиксирована, новые бои в турнир не пойдут. Вернуть турнир нельзя.</i>"
+    )
+
+
+def render_tournament_table(title: str, standings: list[TournamentStanding], final: bool = False) -> str:
+    """Таблица турнира; final=True — итоговая, с победителем."""
+    header = f"🏁 <b>ИТОГИ ТУРНИРА «{_h(title)}»</b>" if final else f"🏟 <b>ТУРНИР «{_h(title)}»</b>"
+    if not standings:
+        return f"{header}\n\nВ турнире не было ни одного боя."
+    medals = ["🥇", "🥈", "🥉"]
+    lines = [f"{header}\n"]
+    for i, s in enumerate(standings, 1):
+        prefix = medals[i - 1] if i <= 3 else f"<b>{i}.</b>"
+        lines.append(f"{prefix} {_name(s.nickname)} — <b>{s.rating}</b> ({s.wins} поб. / {s.losses} пор.)")
+    if final:
+        lines.append(f"\n👑 Победитель турнира: <b>{_name(standings[0].nickname)}</b>!")
+    return "\n".join(lines)
+
+
 def render_owner_commands(debug_tools: bool) -> str:
     """Служебные команды — только владельцу бота в личке; в /help и меню групп их нет."""
     debug_line = "/debug — меню тестового стенда (в тестовой группе)\n" if debug_tools else ""
@@ -178,6 +246,8 @@ def render_owner_commands(debug_tools: bool) -> str:
         "🛠 <b>СЛУЖЕБНЫЕ КОМАНДЫ</b>\n\n"
         "<b>В группе</b> (админы группы и владелец бота):\n"
         "/resettop — обнулить топ чата, с подтверждением\n"
+        "/tstart название — открыть турнир (Elo-рейтинг, общий топ не трогает)\n"
+        "/tend — закрыть турнир и показать итоги, с подтверждением\n"
         f"{debug_line}\n"
         "<b>Здесь, в личке</b> (только владелец бота):\n"
         "/status — состояние бота: аптайм, память, база, ошибки\n"
@@ -228,9 +298,14 @@ def render_help(default_hp: int, top_limit: int, duel_timeout_sec: float) -> str
         "• Если блок совпал с ударом — урон не проходит. Если нет — защитник теряет 1 жизнь.\n"
         f"• На весь бой отводится <b>{format_duration(duel_timeout_sec)}</b>. "
         "Если время выйдет, победит боец с большим запасом жизней.\n\n"
+        "<b>Турниры:</b>\n"
+        "• Пока в чате идёт турнир, каждая дуэль засчитывается и в общий топ, и в турнир.\n"
+        f"• В турнире у всех на старте {START_RATING} очков. Победа над сильным даёт много очков, "
+        "над слабым — мало; поражение слабому отнимает много.\n\n"
         "<b>Команды чата:</b>\n"
         "/duel @ник — вызвать на бой\n"
         "/cancel — отменить свой текущий бой (если соперник пропал)\n"
         f"/top — топ-{top_limit} дуэлянтов чата\n"
+        "/ttop — таблица текущего турнира\n"
         "/help — показать эту инструкцию"
     )

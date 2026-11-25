@@ -40,7 +40,9 @@ class DebugCb(CallbackData, prefix="dbg"):
     action: DebugAction
 
 
-class TopResetAction(StrEnum):
+class ConfirmAction(StrEnum):
+    """Кнопки «Да / Отмена» под необратимым действием админа."""
+
     CONFIRM = "confirm"
     CANCEL = "cancel"
 
@@ -48,5 +50,16 @@ class TopResetAction(StrEnum):
 class TopResetCb(CallbackData, prefix="topreset"):
     """Кнопки подтверждения сброса топа (/resettop); нажать может только admin_id — кто вызвал команду."""
 
-    action: TopResetAction
+    action: ConfirmAction
     admin_id: int
+
+
+class TournamentEndCb(CallbackData, prefix="tend"):
+    """Кнопки подтверждения закрытия турнира (/tend); нажать может только admin_id — кто вызвал команду.
+
+    tournament_id — какой турнир закрываем: старая карточка не закроет турнир, открытый после неё.
+    """
+
+    action: ConfirmAction
+    admin_id: int
+    tournament_id: int

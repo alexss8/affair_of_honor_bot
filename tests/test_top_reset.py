@@ -33,7 +33,7 @@ from bot.config import Config
 from bot.domain.engine import DuelEngine
 from bot.domain.models import Player
 from bot.storage.sqlite_repo import SQLiteRepository
-from bot.telegram.callbacks import TopResetAction, TopResetCb
+from bot.telegram.callbacks import ConfirmAction, TopResetCb
 from bot.telegram.handlers import debug, router
 from bot.telegram.ui import texts
 
@@ -43,11 +43,11 @@ CARD_ID = 900
 
 
 def _confirm(admin: User) -> str:
-    return TopResetCb(action=TopResetAction.CONFIRM, admin_id=admin.id).pack()
+    return TopResetCb(action=ConfirmAction.CONFIRM, admin_id=admin.id).pack()
 
 
 def _cancel(admin: User) -> str:
-    return TopResetCb(action=TopResetAction.CANCEL, admin_id=admin.id).pack()
+    return TopResetCb(action=ConfirmAction.CANCEL, admin_id=admin.id).pack()
 
 
 def _admin(user: User) -> ChatMemberAdministrator:
@@ -181,8 +181,8 @@ async def test_rights_unknown_when_telegram_fails(env):
     assert len(repo.get_top(CHAT_ID)) == 2
 
 
-PLAYER_COMMANDS = ["duel", "cancel", "top", "help"]
-SERVICE_COMMANDS = ("/resettop", "/status", "/admin", "/debug")
+PLAYER_COMMANDS = ["duel", "cancel", "top", "ttop", "help"]
+SERVICE_COMMANDS = ("/resettop", "/tstart", "/tend", "/status", "/admin", "/debug")
 
 
 async def _start_bot(tmp_path, admin_id: int | None, set_commands: AsyncMock) -> AsyncMock:

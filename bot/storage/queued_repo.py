@@ -1,7 +1,15 @@
 import asyncio
 import logging
 
-from bot.domain.models import DuelInvite, DuelSession, Player, PlayerStats
+from bot.domain.models import (
+    DuelInvite,
+    DuelSession,
+    Player,
+    PlayerStats,
+    RatingChange,
+    Tournament,
+    TournamentStanding,
+)
 from bot.storage.base import BaseRepository
 
 
@@ -51,6 +59,21 @@ class QueuedRepository:
 
     def reset_top(self, chat_id: int) -> int:
         return self.repo.reset_top(chat_id)
+
+    def start_tournament(self, chat_id: int, title: str) -> Tournament | None:
+        return self.repo.start_tournament(chat_id, title)
+
+    def get_active_tournament(self, chat_id: int) -> Tournament | None:
+        return self.repo.get_active_tournament(chat_id)
+
+    def end_tournament(self, chat_id: int) -> Tournament | None:
+        return self.repo.end_tournament(chat_id)
+
+    def record_tournament_duel(self, chat_id: int, winner: Player, loser: Player) -> RatingChange | None:
+        return self.repo.record_tournament_duel(chat_id, winner, loser)
+
+    def get_tournament_standings(self, tournament_id: int, limit: int = 10) -> list[TournamentStanding]:
+        return self.repo.get_tournament_standings(tournament_id, limit)
 
     def save_suspended(self, sessions: list[DuelSession], invites: list[DuelInvite], now: float) -> None:
         self.repo.save_suspended(sessions, invites, now)

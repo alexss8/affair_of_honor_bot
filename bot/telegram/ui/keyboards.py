@@ -1,15 +1,19 @@
+from collections.abc import Callable
+
+from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.domain.models import DuelSession, MoveKind, Zone
 from bot.telegram.callbacks import (
+    ConfirmAction,
     DebugAction,
     DebugCb,
     InviteAction,
     InviteCb,
     MoveCb,
     SurrenderCb,
-    TopResetAction,
     TopResetCb,
+    TournamentEndCb,
 )
 from bot.telegram.ui.texts import short_name
 
@@ -43,12 +47,25 @@ def invite_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def top_reset_keyboard(admin_id: int) -> InlineKeyboardMarkup:
-    def button(text: str, action: TopResetAction) -> InlineKeyboardButton:
-        return InlineKeyboardButton(text=text, callback_data=TopResetCb(action=action, admin_id=admin_id).pack())
+def _confirm_keyboard(confirm_text: str, make_cb: Callable[[ConfirmAction], CallbackData]) -> InlineKeyboardMarkup:
+    """«Да / Отмена» под необратимым действием."""
+
+    def button(text: str, action: ConfirmAction) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=text, callback_data=make_cb(action).pack())
 
     return InlineKeyboardMarkup(
-        inline_keyboard=[[button("🧹 Да, обнулить", TopResetAction.CONFIRM), button("Отмена", TopResetAction.CANCEL)]]
+        inline_keyboard=[[button(confirm_text, ConfirmAction.CONFIRM), button("Отмена", ConfirmAction.CANCEL)]]
+    )
+
+
+def top_reset_keyboard(admin_id: int) -> InlineKeyboardMarkup:
+    return _confirm_keyboard("🧹 Да, обнулить", lambda action: TopResetCb(action=action, admin_id=admin_id))
+
+
+def tournament_end_keyboard(admin_id: int, tournament_id: int) -> InlineKeyboardMarkup:
+    return _confirm_keyboard(
+        "🏁 Да, закрыть",
+        lambda action: TournamentEndCb(action=action, admin_id=admin_id, tournament_id=tournament_id),
     )
 
 

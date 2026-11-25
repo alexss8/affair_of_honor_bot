@@ -112,6 +112,31 @@ class DuelOutcome:
         return self.winner is not None
 
 
+@dataclass(frozen=True)
+class Tournament:
+    tournament_id: int
+    chat_id: int
+    title: str
+
+
+@dataclass(frozen=True)
+class RatingChange:
+    """Как бой изменил турнирный рейтинг: рейтинги после боя и сколько очков перешло от проигравшего."""
+
+    title: str
+    winner_rating: int
+    loser_rating: int
+    delta: int
+
+
+@dataclass(frozen=True)
+class TournamentStanding:
+    nickname: str
+    rating: int
+    wins: int
+    losses: int
+
+
 @dataclass
 class PlayerStats:
     nickname: str

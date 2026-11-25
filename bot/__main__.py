@@ -75,6 +75,7 @@ async def main(config: Config) -> None:
             BotCommand(command="duel", description="Вызвать на дуэль (@ник или Reply)"),
             BotCommand(command="cancel", description="Отменить свою зависшую дуэль"),
             BotCommand(command="top", description=f"Топ-{config.top_limit} дуэлянтов чата"),
+            BotCommand(command="ttop", description="Таблица текущего турнира"),
             BotCommand(command="help", description="Правила игры и команды"),
         ]
         await bot.set_my_commands(commands=group_commands, scope=BotCommandScopeAllGroupChats())

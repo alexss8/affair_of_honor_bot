@@ -73,11 +73,33 @@ def _v3_unescape_names(conn: sqlite3.Connection) -> None:
             )
 
 
+def _v4_tournaments(conn: sqlite3.Connection) -> None:
+    """Турниры со своим Elo-рейтингом (этап 8); итоги закрытых турниров остаются в базе."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tournaments ("
+        "tournament_id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, title TEXT NOT NULL, "
+        "started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, ended_at TIMESTAMP)"
+    )
+    # Не больше одного открытого турнира в чате — гарантирует сама база.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS tournaments_one_open_per_chat ON tournaments(chat_id) WHERE ended_at IS NULL"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tournament_ratings ("
+        "tournament_id INTEGER NOT NULL, user_id INTEGER NOT NULL, nickname TEXT, rating INTEGER NOT NULL, "
+        "wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, "
+        # Order in which players reached their current rating: on a full tie, who reached it first ranks higher.
+        "rating_seq INTEGER NOT NULL DEFAULT 0, "
+        "PRIMARY KEY (tournament_id, user_id))"
+    )
+
+
 # Индекс + 1 = номер версии схемы.
 MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v1_base_schema,
     _v2_suspended_duels,
     _v3_unescape_names,
+    _v4_tournaments,
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 
