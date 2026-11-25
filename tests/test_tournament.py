@@ -235,6 +235,10 @@ def test_tournament_texts_escape_html():
     assert "&lt;i&gt;w&lt;/i&gt;" in change
 
 
+def test_empty_tournament_table_says_no_duels():
+    assert texts.render_tournament_table("Осень", []) == "🏟 <b>ТУРНИР «Осень»</b>\n\nВ турнире не было ни одного боя."
+
+
 # --- commands ---
 
 
@@ -288,6 +292,15 @@ async def test_admin_starts_tournament_once(env):
         texts.render_tournament_started("Осенний кубок", "@alice"),
         texts.render_tournament_already_open("Осенний кубок"),
     ]
+
+
+async def test_bot_owner_starts_tournament_without_group_admin_rights(env):
+    dp, bot, repo, _ = env
+    owner = User(id=OWNER_ID, is_bot=False, first_name="Owner")
+
+    await dp.feed_update(bot, make_msg_update(1, owner, "/tstart Осень"))
+
+    assert repo.get_active_tournament(CHAT_ID).title == "Осень"
 
 
 async def test_tournament_title_has_default_and_is_capped(env):
